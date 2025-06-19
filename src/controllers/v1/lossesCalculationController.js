@@ -1671,8 +1671,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
       const grossInjection = subClientData.grossInjectionMWHAfterLosses || 0;
       const drawl = subClientData.drawlMWHAfterLosses || 0;
-      const netInjection = grossInjection + drawl;
-      const weightage = grossInjectedValue > 0 ? (grossInjection / grossInjectedValue) * 100 : 0;
+      const netInjection = subClientData.netInjectionMWHAfterLosses || 0;
+      const weightage = (netInjection / lossesCalculationData.mainClient.netInjectionMWH) * 100 || 0; // Use main client's net injection for weightage calculation
+      // const weightage = grossInjectedValue > 0 ? (grossInjection / grossInjectedValue) * 100 : 0;
 
       // Sr. No. - Use globalIndex and increment it
       summarySheet.getCell(`A${currentRowNum}`).value = globalIndex++;
