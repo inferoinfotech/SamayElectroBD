@@ -12,4 +12,6 @@ router.get('/latest',verifyToken, lossesCalculationController.getLatestLossesRep
 router.get('/download-losses-calculation/:id', verifyToken, lossesCalculationController.downloadLossesCalculationExcel);
 
 router.post('/get-losses-data-last-four-months', verifyToken, lossesCalculationController.getLossesDataLastFourMonths);
+
+router.post('/get-sldc-data', verifyToken, lossesCalculationController.getSLDCData);
 module.exports = router;

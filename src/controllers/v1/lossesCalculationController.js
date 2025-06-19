@@ -4268,4 +4268,42 @@ const getLossesDataLastFourMonths = async (req, res) => {
   }
 };
 
-module.exports = { generateLossesCalculation, getLatestLossesReports, downloadLossesCalculationExcel, getLossesDataLastFourMonths };
+// Get SLDC GROSS INJECTION and DRAWL for a specific main client, month, and year
+const getSLDCData = async (req, res) => {
+  try {
+    const { mainClientId, month, year } = req.body;
+
+    // Validate input
+    if (!mainClientId || !month || !year) {
+      return res.status(400).json({ message: "mainClientId, month, and year are required." });
+    }
+
+    // Get the latest report for this main client, month, and year
+    const sldcData = await LossesCalculationData.findOne({
+      mainClientId,
+      month: Number(month),
+      year: Number(year)
+    })
+      .sort({ updatedAt: -1 })   // <-- Add this line to always get the latest!
+      .select('SLDCGROSSINJECTION SLDCGROSSDRAWL');
+
+    if (!sldcData) {
+      return res.status(404).json({ message: "No SLDC data found for this client and period." });
+    }
+
+    res.status(200).json({
+      message: "SLDC data fetched successfully.",
+      data: {
+        SLDCGROSSINJECTION: sldcData.SLDCGROSSINJECTION,
+        SLDCGROSSDRAWL: sldcData.SLDCGROSSDRAWL
+      }
+    });
+  } catch (error) {
+    logger.error(`Error fetching SLDC data: ${error.message}`);
+    res.status(500).json({ message: "Error fetching SLDC data.", error: error.message });
+  }
+};
+
+
+
+module.exports = { generateLossesCalculation, getLatestLossesReports, downloadLossesCalculationExcel, getLossesDataLastFourMonths, getSLDCData };
