@@ -2074,6 +2074,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     right: { style: 'medium', color: { argb: '000000' } }
   };
 
+  masterdataSheet.getColumn('H').width = 14;
+  masterdataSheet.getColumn('I').width = 14;
+  masterdataSheet.getColumn('J').width = 14;
 
   // Blank row (row 4)
   masterdataSheet.getRow(4).height = 15; // Slightly more spacing than your original 5
