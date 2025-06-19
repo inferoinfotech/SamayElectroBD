@@ -91,7 +91,26 @@ exports.addSubClient = async (req, res) => {
 
         // Save the new SubClient to the database
         await newSubClient.save();
-        return res.status(201).json({ message: 'Sub Client added successfully', subClient: newSubClient });
+
+        // Create History entry for addition of SubClient
+        const historyEntry = new History({
+            clientId: newSubClient._id,
+            fieldName: 'sub client add',
+            oldValue: 'not exist',
+            newValue: 'create sub client',
+            updatedAt: new Date()
+        });
+        await historyEntry.save();
+
+        // Attach this history to SubClient's history array and save again
+        newSubClient.history.push(historyEntry._id);
+        await newSubClient.save();
+
+        return res.status(201).json({
+            message: 'Sub Client added successfully',
+            subClient: newSubClient,
+            history: historyEntry
+        });
 
     } catch (error) {
         // Improved error handling for any unexpected issues
@@ -99,6 +118,7 @@ exports.addSubClient = async (req, res) => {
         return res.status(500).json({ message: 'An error occurred while adding the sub-client', error: error.message });
     }
 };
+
 
 
 // Update SubClient Field
