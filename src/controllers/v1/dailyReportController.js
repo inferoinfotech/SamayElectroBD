@@ -589,10 +589,10 @@ exports.downloadDailyReportExcel = async (req, res) => {
             vertical: 'middle'
         };
         titleCell.border = {
-            top: { style: 'medium' },
-            left: { style: 'medium' },
-            bottom: { style: 'medium' },
-            right: { style: 'medium' }
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
         };
 
         // ====================
@@ -628,10 +628,10 @@ exports.downloadDailyReportExcel = async (req, res) => {
             vertical: 'middle'
         };
         monthCell.border = {
-            top: { style: 'medium' },
-            left: { style: 'medium' },
-            bottom: { style: 'medium' },
-            right: { style: 'medium' }
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
         };
 
         // Date range cell (next column after month to end)
@@ -655,10 +655,10 @@ exports.downloadDailyReportExcel = async (req, res) => {
             vertical: 'middle'
         };
         periodCell.border = {
-            top: { style: 'medium' },
-            left: { style: 'medium' },
-            bottom: { style: 'medium' },
-            right: { style: 'medium' }
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
         };
         // ====================
         // ROW 4: CLIENT NAMES
@@ -713,10 +713,10 @@ exports.downloadDailyReportExcel = async (req, res) => {
         };
         // Add thick outside border to main client cells
         mainClientCell.border = {
-            top: { style: 'medium' },
-            left: { style: 'medium' },
+            top: { style: 'thin' },
+            left: { style: 'thin' },
             bottom: { style: 'thin' },
-            right: { style: 'medium' }
+            right: { style: 'thin' }
         };
         // Add thin inside border
         worksheet.getCell('B4').border.right = { style: 'thin' };
@@ -747,10 +747,10 @@ exports.downloadDailyReportExcel = async (req, res) => {
             };
             // Add thick outside border to sub-client cells
             cell.border = {
-                top: { style: 'medium' },
-                left: { style: 'medium' },
+                top: { style: 'thin' },
+                left: { style: 'thin' },
                 bottom: { style: 'thin' },
-                right: { style: 'medium' }
+                right: { style: 'thin' }
             };
             // Add thin inside borders
             for (let i = 1; i <= 4; i++) {
@@ -780,10 +780,10 @@ exports.downloadDailyReportExcel = async (req, res) => {
         };
         // Add thick outside border to AC LINE cells
         acLineCell.border = {
-            top: { style: 'medium' },
-            left: { style: 'medium' },
-            bottom: { style: 'medium' },
-            right: { style: 'medium' }
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
         };
         // Add thin inside borders
         for (let i = 1; i <= 3; i++) {
@@ -846,9 +846,9 @@ exports.downloadDailyReportExcel = async (req, res) => {
         // Add thick outside border to main client cells
         mainMeterCell.border = {
             top: { style: 'thin' },
-            left: { style: 'medium' },
-            bottom: { style: 'medium' },
-            right: { style: 'medium' }
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
         };
         // Add thin inside border
         worksheet.getCell('B5').border.right = { style: 'thin' };
@@ -876,9 +876,9 @@ exports.downloadDailyReportExcel = async (req, res) => {
             // Add thick outside border to sub-client cells
             cell.border = {
                 top: { style: 'thin' },
-                left: { style: 'medium' },
-                bottom: { style: 'medium' },
-                right: { style: 'medium' }
+                left: { style: 'thin' },
+                bottom: { style: 'thin' },
+                right: { style: 'thin' }
             };
             // Add thin inside borders
             for (let i = 1; i <= 4; i++) {
@@ -1207,10 +1207,10 @@ exports.downloadDailyReportExcel = async (req, res) => {
                 wrapText: true
             },
             border: {
-                top: { style: 'medium' },
-                left: { style: 'medium' },
-                bottom: { style: 'medium' },
-                right: { style: 'medium' }
+                top: { style: 'thin' },
+                left: { style: 'thin' },
+                bottom: { style: 'thin' },
+                right: { style: 'thin' }
             },
             numFmt: '0.0' // Format numbers to show one decimal place
         };
@@ -1219,10 +1219,10 @@ exports.downloadDailyReportExcel = async (req, res) => {
         for (let col = 1; col <= totalColss; col++) {
             const cell = totalsRow.getCell(col);
             cell.border = {
-                top: { style: 'medium' },
-                left: { style: col === 1 ? 'medium' : 'thin' },
-                bottom: { style: 'medium' },
-                right: { style: col === totalColss ? 'medium' : 'thin' }
+                top: { style: 'thin' },
+                left: { style: col === 1 ? 'thin' : 'thin' },
+                bottom: { style: 'thin' },
+                right: { style: col === totalColss ? 'thin' : 'thin' }
             };
         }
 
