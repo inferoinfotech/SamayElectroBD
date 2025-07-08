@@ -2727,10 +2727,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
                   cell.font = { size: 10, color: { argb: '9C0006' }, name: 'Times New Roman' };
                 }
               } else {
-                // Fallback to sample data if no actual data found
-                const value = (entry.grossInjectedUnitsTotal * (0.8 - subIndex * 0.1)) * sharingPct;
-                cell.value = value;
-                subClientsSum += value;
+                // Set to 0 if no data found
+                cell.value = 0;
+                cell.numFmt = '0.00000';
+                cell.font = { size: 10, name: 'Times New Roman' };
               }
 
               currentCol = String.fromCharCode(currentCol.charCodeAt(0) + 1); // Move to next column
@@ -2752,10 +2752,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
                 cell.font = { size: 10, color: { argb: '9C0006' }, name: 'Times New Roman' };
               }
             } else {
-              // Fallback to sample data if no actual data found
-              const value = (entry.grossInjectedUnitsTotal * (0.8 - subIndex * 0.1));
-              cell.value = value;
-              subClientsSum += value;
+              // Set to 0 if no data found
+              cell.value = 0;
+              cell.numFmt = '0.00000';
+              cell.font = { size: 10, name: 'Times New Roman' };
             }
 
             currentCol = String.fromCharCode(currentCol.charCodeAt(0) + 1); // Move to next column
@@ -4090,10 +4090,63 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
                 currentCol += 2;
               }
             } else {
-              // No entry found, skip columns
+              // No entry found - set to 0 instead of skipping
               if (subClientData.partclient && subClientData.partclient.length > 0) {
+                // For subclient with partclients
+                // Total column
+                const grossCell = worksheet.getCell(worksheet.getColumn(currentCol).letter + rowIndex);
+                grossCell.value = 0;
+                grossCell.numFmt = '0.000';
+                grossCell.alignment = { horizontal: "center", vertical: "middle" };
+                grossCell.border = {
+                  top: { style: "thin" },
+                  left: { style: "thin" },
+                  bottom: { style: "thin" },
+                  right: { style: "thin" },
+                };
+
+                // Next columns are for partclients (NET Total after Losses)
+                subClientData.partclient.forEach((partClient, partIndex) => {
+                  const partCol = currentCol + 1 + partIndex;
+                  const netLossCell = worksheet.getCell(worksheet.getColumn(partCol).letter + rowIndex);
+                  netLossCell.value = 0;
+                  netLossCell.numFmt = '0.000';
+                  netLossCell.alignment = { horizontal: "center", vertical: "middle" };
+                  netLossCell.border = {
+                    top: { style: "thin" },
+                    left: { style: "thin" },
+                    bottom: { style: "thin" },
+                    right: { style: "thin" },
+                  };
+                });
+
                 currentCol += 1 + subClientData.partclient.length;
               } else {
+                // For subclient without partclients
+                // Total column
+                const grossCell = worksheet.getCell(worksheet.getColumn(currentCol).letter + rowIndex);
+                grossCell.value = 0;
+                grossCell.numFmt = '0.000';
+                grossCell.alignment = { horizontal: "center", vertical: "middle" };
+                grossCell.border = {
+                  top: { style: "thin" },
+                  left: { style: "thin" },
+                  bottom: { style: "thin" },
+                  right: { style: "thin" },
+                };
+
+                // NET column
+                const netLossCell = worksheet.getCell(worksheet.getColumn(currentCol + 1).letter + rowIndex);
+                netLossCell.value = 0;
+                netLossCell.numFmt = '0.000';
+                netLossCell.alignment = { horizontal: "center", vertical: "middle" };
+                netLossCell.border = {
+                  top: { style: "thin" },
+                  left: { style: "thin" },
+                  bottom: { style: "thin" },
+                  right: { style: "thin" },
+                };
+
                 currentCol += 2;
               }
             }
