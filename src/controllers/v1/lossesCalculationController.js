@@ -2657,23 +2657,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     lossesCalculationData.mainClient.mainClientMeterDetails.length > 0) {
     // Get all unique dates from all clients (main and subclients)
 // const timeHeaderRow = 14;
+// Replace the existing date processing code with this:
 const allDates = new Set();
 
-// Add dates from main client
-if (lossesCalculationData.mainClient.mainClientMeterDetails) {
-  lossesCalculationData.mainClient.mainClientMeterDetails.forEach(entry => {
-    allDates.add(entry.date);
-  });
+// Add all possible dates (1st to last day of month)
+for (let day = 1; day <= lastDay; day++) {
+  const dateStr = `${day.toString().padStart(2, '0')}-${monthStr}-${lossesCalculationData.year}`;
+  allDates.add(dateStr);
 }
-
-// Add dates from subclients
-lossesCalculationData.subClient.forEach(subClient => {
-  if (subClient.subClientsData?.subClientMeterData) {
-    subClient.subClientsData.subClientMeterData.forEach(entry => {
-      allDates.add(entry.date);
-    });
-  }
-});
 
 // Convert to array and sort
 const sortedDates = Array.from(allDates).sort();
@@ -2702,14 +2693,14 @@ sortedDates.forEach(date => {
     blockCell.value = blockNumber;
     blockCell.font = { size: 10, name: 'Times New Roman' };
 
-    // Find main client entry for this date/time
+    // Find main client entry for this date/time - use 0 if not found
     const mainEntry = lossesCalculationData.mainClient.mainClientMeterDetails?.find(
       e => e.date === date && e.time === time
-    ) || null;
+    ) || { grossInjectedUnitsTotal: 0 };
 
     // Main client data (original styling)
     const mainCell = masterdataSheet.getCell(`D${rowIndex}`);
-    const mainValue = mainEntry ? mainEntry.grossInjectedUnitsTotal : 0;
+    const mainValue = mainEntry.grossInjectedUnitsTotal;
     mainCell.value = mainValue;
     mainCell.numFmt = '0.00000';
 
@@ -2719,14 +2710,14 @@ sortedDates.forEach(date => {
       mainCell.font = { size: 10, color: { argb: '9C0006' }, name: 'Times New Roman' };
     }
 
-    // Sub client data (use actual data if available) - original structure
+    // Sub client data (use 0 if no data available) - original structure
     let subClientsSum = 0;
     let currentCol = 'E'; // Start from column E
 
     lossesCalculationData.subClient.forEach((subClient, subIndex) => {
       const subEntry = subClient.subClientsData.subClientMeterData?.find(
         e => e.date === date && e.time === time
-      ) || null;
+      ) || { netTotalAfterLosses: 0 };
 
       const partClients = subClient.subClientsData?.partclient || [];
 
@@ -2737,7 +2728,7 @@ sortedDates.forEach(date => {
           const colLetter = currentCol;
           const cell = masterdataSheet.getCell(`${colLetter}${rowIndex}`);
 
-          const partValue = subEntry ? (subEntry.netTotalAfterLosses || 0) * sharingPct : 0;
+          const partValue = subEntry.netTotalAfterLosses * sharingPct;
           cell.value = partValue;
           cell.numFmt = '0.00000';
           cell.font = { size: 10, name: 'Times New Roman' };
@@ -2755,7 +2746,7 @@ sortedDates.forEach(date => {
         const colLetter = currentCol;
         const cell = masterdataSheet.getCell(`${colLetter}${rowIndex}`);
 
-        const value = subEntry ? subEntry.netTotalAfterLosses || 0 : 0;
+        const value = subEntry.netTotalAfterLosses;
         cell.value = value;
         cell.numFmt = '0.00000';
         cell.font = { size: 10, name: 'Times New Roman' };
@@ -3955,145 +3946,151 @@ sortedDates.forEach(date => {
     // Add actual time blocks data from the database
     if (lossesCalculationData.mainClient.mainClientMeterDetails &&
       lossesCalculationData.mainClient.mainClientMeterDetails.length > 0) {
-      const allDates = new Set();
-const lastColumn = 4 + (subClients.length * 2); // 4 base columns + (subclients * 2 columns each)
-      const lastColumnLetter = worksheet.getColumn(lastColumn).letter;
-      // Add dates from main client
-      if (lossesCalculationData.mainClient.mainClientMeterDetails) {
-        lossesCalculationData.mainClient.mainClientMeterDetails.forEach(entry => {
-          allDates.add(entry.date);
+      // Replace the existing date processing code with this:
+let lastColumn = 4; // Start with column D (SLDC data)
+
+lossesCalculationData.subClient.forEach(subClient => {
+  const subClientData = subClient.subClientsData;
+  if (subClientData.partclient && subClientData.partclient.length > 0) {
+    // For subclients with partclients: 1 column for total + 1 column per partclient
+    lastColumn += 1 + subClientData.partclient.length;
+  } else {
+    // For regular subclients: 2 columns (TOTAL + NET)
+    lastColumn += 2;
+  }
+});
+
+const lastColumnLetter = worksheet.getColumn(lastColumn).letter;
+
+// Now continue with the date processing code
+const allDates = new Set();
+
+// Add all possible dates (1st to last day of month)
+for (let day = 1; day <= lastDay; day++) {
+  const dateStr = `${day.toString().padStart(2, '0')}-${monthStr}-${lossesCalculationData.year}`;
+  allDates.add(dateStr);
+}
+
+// Convert to array and sort
+const sortedDates = Array.from(allDates).sort();
+
+// Add time blocks for all dates
+let rowIndex = timeHeaderRow + 1;
+
+sortedDates.forEach(date => {
+  // Create entries for all 96 blocks (00:00 to 23:45 in 15-minute intervals)
+  for (let block = 0; block < 96; block++) {
+    const hours = Math.floor(block / 4);
+    const minutes = (block % 4) * 15;
+    const time = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+    const blockNumber = block + 1;
+
+    // Set date, time and block number
+    worksheet.getCell(`A${rowIndex}`).value = date;
+    worksheet.getCell(`B${rowIndex}`).value = time;
+    worksheet.getCell(`C${rowIndex}`).value = blockNumber;
+
+    // Find main client entry for this date/time - use 0 if not found
+    const mainEntry = lossesCalculationData.mainClient.mainClientMeterDetails?.find(
+      e => e.date === date && e.time === time
+    ) || { grossInjectedUnitsTotal: 0 };
+
+    // Add main client data (column D)
+    const mainGrossCell = worksheet.getCell(`D${rowIndex}`);
+    const mainGrossValue = mainEntry.grossInjectedUnitsTotal;
+    mainGrossCell.value = mainGrossValue;
+    mainGrossCell.numFmt = '0.000';
+
+    if (mainGrossValue <= 0) {
+      mainGrossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
+      mainGrossCell.font = { color: { argb: "9C0006" } };
+    }
+
+    // Add sub client data
+    let currentCol = 5;
+    lossesCalculationData.subClient.forEach((subClient, clientIndex) => {
+      const subClientData = subClient.subClientsData;
+
+      // Find subclient entry for this date/time - use 0 if not found
+      const subEntry = subClientData.subClientMeterData?.find(
+        e => e.date === date && e.time === time
+      ) || { grossInjectedUnitsTotal: 0, netTotalAfterLosses: 0 };
+
+      if (subClientData.partclient && subClientData.partclient.length > 0) {
+        // Handle subclient with partclients
+        // Total column
+        const grossCell = worksheet.getCell(`${String.fromCharCode(64 + currentCol)}${rowIndex}`);
+        const grossValue = subEntry.grossInjectedUnitsTotal;
+        grossCell.value = grossValue;
+        grossCell.numFmt = '0.000';
+
+        if (grossValue <= 0) {
+          grossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
+          grossCell.font = { color: { argb: "9C0006" } };
+        }
+
+        // Partclient columns
+        subClientData.partclient.forEach((partClient, partIndex) => {
+          const partCol = currentCol + 1 + partIndex;
+          const netLossCell = worksheet.getCell(`${String.fromCharCode(64 + partCol)}${rowIndex}`);
+
+          // Calculate net total after losses
+          const sharingPercentage = partClient.sharingPercentage;
+          const netValue = (subEntry.netTotalAfterLosses * sharingPercentage) / 100;
+
+          netLossCell.value = netValue;
+          netLossCell.numFmt = '0.000';
+
+          if (netValue <= 0) {
+            netLossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
+            netLossCell.font = { color: { argb: "9C0006" } };
+          }
         });
+
+        currentCol += 1 + subClientData.partclient.length;
+      } else {
+        // Handle subclient without partclients
+        // Total column
+        const grossCell = worksheet.getCell(`${String.fromCharCode(64 + currentCol)}${rowIndex}`);
+        const grossValue = subEntry.grossInjectedUnitsTotal;
+        grossCell.value = grossValue;
+        grossCell.numFmt = '0.000';
+
+        if (grossValue <= 0) {
+          grossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
+          grossCell.font = { color: { argb: "9C0006" } };
+        }
+
+        // NET column
+        const netLossCell = worksheet.getCell(`${String.fromCharCode(64 + currentCol + 1)}${rowIndex}`);
+        const netValue = subEntry.netTotalAfterLosses;
+        netLossCell.value = netValue;
+        netLossCell.numFmt = '0.000';
+
+        if (netValue <= 0) {
+          netLossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
+          netLossCell.font = { color: { argb: "9C0006" } };
+        }
+
+        currentCol += 2;
       }
+    });
 
-      // Add dates from subclients
-      lossesCalculationData.subClient.forEach(subClient => {
-        if (subClient.subClientsData?.subClientMeterData) {
-          subClient.subClientsData.subClientMeterData.forEach(entry => {
-            allDates.add(entry.date);
-          });
-        }
-      });
+    // Style the row
+    for (let col = 1; col <= lastColumn; col++) {
+      const cell = worksheet.getCell(rowIndex, col);
+      cell.alignment = { horizontal: "center", vertical: "middle" };
+      cell.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" },
+      };
+    }
 
-      // Convert to array and sort
-      const sortedDates = Array.from(allDates).sort();
-
-      // Add time blocks for all dates
-      let rowIndex = timeHeaderRow + 1;
-
-      sortedDates.forEach(date => {
-        // Create entries for all 96 blocks (00:00 to 23:45 in 15-minute intervals)
-        for (let block = 0; block < 96; block++) {
-          const hours = Math.floor(block / 4);
-          const minutes = (block % 4) * 15;
-          const time = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-          const blockNumber = block + 1;
-
-          // Set date, time and block number
-          worksheet.getCell(`A${rowIndex}`).value = date;
-          worksheet.getCell(`B${rowIndex}`).value = time;
-          worksheet.getCell(`C${rowIndex}`).value = blockNumber;
-
-          // Find main client entry for this date/time
-          const mainEntry = lossesCalculationData.mainClient.mainClientMeterDetails?.find(
-            e => e.date === date && e.time === time
-          ) || null;
-
-          // Add main client data (column D)
-          const mainGrossCell = worksheet.getCell(`D${rowIndex}`);
-          const mainGrossValue = mainEntry ? mainEntry.grossInjectedUnitsTotal : 0;
-          mainGrossCell.value = mainGrossValue;
-          mainGrossCell.numFmt = '0.000';
-
-          if (mainGrossValue <= 0) {
-            mainGrossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
-            mainGrossCell.font = { color: { argb: "9C0006" } };
-          }
-
-          // Add sub client data
-          let currentCol = 5;
-          lossesCalculationData.subClient.forEach((subClient, clientIndex) => {
-            const subClientData = subClient.subClientsData;
-
-            // Find subclient entry for this date/time
-            const subEntry = subClientData.subClientMeterData?.find(
-              e => e.date === date && e.time === time
-            ) || null;
-
-            if (subClientData.partclient && subClientData.partclient.length > 0) {
-              // Handle subclient with partclients
-              // Total column
-              const grossCell = worksheet.getCell(`${String.fromCharCode(64 + currentCol)}${rowIndex}`);
-              const grossValue = subEntry ? subEntry.grossInjectedUnitsTotal : 0;
-              grossCell.value = grossValue;
-              grossCell.numFmt = '0.000';
-
-              if (grossValue <= 0) {
-                grossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
-                grossCell.font = { color: { argb: "9C0006" } };
-              }
-
-              // Partclient columns
-              subClientData.partclient.forEach((partClient, partIndex) => {
-                const partCol = currentCol + 1 + partIndex;
-                const netLossCell = worksheet.getCell(`${String.fromCharCode(64 + partCol)}${rowIndex}`);
-
-                // Calculate net total after losses
-                const sharingPercentage = partClient.sharingPercentage;
-                const netValue = subEntry ? (subEntry.netTotalAfterLosses * sharingPercentage) / 100 : 0;
-
-                netLossCell.value = netValue;
-                netLossCell.numFmt = '0.000';
-
-                if (netValue <= 0) {
-                  netLossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
-                  netLossCell.font = { color: { argb: "9C0006" } };
-                }
-              });
-
-              currentCol += 1 + subClientData.partclient.length;
-            } else {
-              // Handle subclient without partclients
-              // Total column
-              const grossCell = worksheet.getCell(`${String.fromCharCode(64 + currentCol)}${rowIndex}`);
-              const grossValue = subEntry ? subEntry.grossInjectedUnitsTotal : 0;
-              grossCell.value = grossValue;
-              grossCell.numFmt = '0.000';
-
-              if (grossValue <= 0) {
-                grossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
-                grossCell.font = { color: { argb: "9C0006" } };
-              }
-
-              // NET column
-              const netLossCell = worksheet.getCell(`${String.fromCharCode(64 + currentCol + 1)}${rowIndex}`);
-              const netValue = subEntry ? subEntry.netTotalAfterLosses : 0;
-              netLossCell.value = netValue;
-              netLossCell.numFmt = '0.000';
-
-              if (netValue <= 0) {
-                netLossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
-                netLossCell.font = { color: { argb: "9C0006" } };
-              }
-
-              currentCol += 2;
-            }
-          });
-
-          // Style the row
-          for (let col = 1; col <= lastColumn; col++) {
-            const cell = worksheet.getCell(rowIndex, col);
-            cell.alignment = { horizontal: "center", vertical: "middle" };
-            cell.border = {
-              top: { style: "thin" },
-              left: { style: "thin" },
-              bottom: { style: "thin" },
-              right: { style: "thin" },
-            };
-          }
-
-          rowIndex++;
-        }
-      });
+    rowIndex++;
+  }
+});
 
       // Apply borders to all header rows dynamically
       const headerRows = [abtStartRow, totalRow2, grossInjectionRow, drawlRow, netInjectionRow, timeHeaderRow];
