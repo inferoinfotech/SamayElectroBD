@@ -3947,226 +3947,144 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     // Add actual time blocks data from the database
     if (lossesCalculationData.mainClient.mainClientMeterDetails &&
       lossesCalculationData.mainClient.mainClientMeterDetails.length > 0) {
-      const meterDetails = lossesCalculationData.mainClient.mainClientMeterDetails;
-
-      // Calculate last column based on number of subclients
-      const lastColumn = 4 + (subClients.length * 2); // 4 base columns + (subclients * 2 columns each)
+      const allDates = new Set();
+const lastColumn = 4 + (subClients.length * 2); // 4 base columns + (subclients * 2 columns each)
       const lastColumnLetter = worksheet.getColumn(lastColumn).letter;
+      // Add dates from main client
+      if (lossesCalculationData.mainClient.mainClientMeterDetails) {
+        lossesCalculationData.mainClient.mainClientMeterDetails.forEach(entry => {
+          allDates.add(entry.date);
+        });
+      }
 
-      // Group entries by date
-      const entriesByDate = {};
-      meterDetails.forEach(entry => {
-        if (!entriesByDate[entry.date]) {
-          entriesByDate[entry.date] = [];
+      // Add dates from subclients
+      lossesCalculationData.subClient.forEach(subClient => {
+        if (subClient.subClientsData?.subClientMeterData) {
+          subClient.subClientsData.subClientMeterData.forEach(entry => {
+            allDates.add(entry.date);
+          });
         }
-        entriesByDate[entry.date].push(entry);
       });
 
+      // Convert to array and sort
+      const sortedDates = Array.from(allDates).sort();
+
+      // Add time blocks for all dates
       let rowIndex = timeHeaderRow + 1;
 
-      // Process each date's entries
-      Object.entries(entriesByDate).forEach(([date, dateEntries]) => {
-        // Limit to first 96 entries per date (one day of 15-minute intervals)
-        const entriesToShow = dateEntries.slice(0, 96);
+      sortedDates.forEach(date => {
+        // Create entries for all 96 blocks (00:00 to 23:45 in 15-minute intervals)
+        for (let block = 0; block < 96; block++) {
+          const hours = Math.floor(block / 4);
+          const minutes = (block % 4) * 15;
+          const time = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+          const blockNumber = block + 1;
 
-        entriesToShow.forEach((entry, index) => {
-          // Set values for base columns (A-D)
-          worksheet.getCell(`A${rowIndex}`).value = entry.date;
-          worksheet.getCell(`B${rowIndex}`).value = entry.time;
-          worksheet.getCell(`C${rowIndex}`).value = index + 1; // Block number (1-96 for each date)
+          // Set date, time and block number
+          worksheet.getCell(`A${rowIndex}`).value = date;
+          worksheet.getCell(`B${rowIndex}`).value = time;
+          worksheet.getCell(`C${rowIndex}`).value = blockNumber;
+
+          // Find main client entry for this date/time
+          const mainEntry = lossesCalculationData.mainClient.mainClientMeterDetails?.find(
+            e => e.date === date && e.time === time
+          ) || null;
 
           // Add main client data (column D)
           const mainGrossCell = worksheet.getCell(`D${rowIndex}`);
-          const mainGrossValue = entry.grossInjectedUnitsTotal;
+          const mainGrossValue = mainEntry ? mainEntry.grossInjectedUnitsTotal : 0;
           mainGrossCell.value = mainGrossValue;
           mainGrossCell.numFmt = '0.000';
-          mainGrossCell.alignment = { horizontal: "center", vertical: "middle" };
-          mainGrossCell.border = {
-            top: { style: "thin" },
-            left: { style: "thin" },
-            bottom: { style: "thin" },
-            right: { style: "thin" },
-          };
 
-          // Apply red background if actual value is negative or zero
           if (mainGrossValue <= 0) {
             mainGrossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
             mainGrossCell.font = { color: { argb: "9C0006" } };
           }
 
-          // Add sub client data if available
+          // Add sub client data
           let currentCol = 5;
-          subClients.forEach((subClient, clientIndex) => {
+          lossesCalculationData.subClient.forEach((subClient, clientIndex) => {
             const subClientData = subClient.subClientsData;
-            const subClientEntry = subClientData.subClientMeterData.find(
-              e => e.date === entry.date && e.time === entry.time
-            );
 
-            if (subClientEntry) {
-              if (subClientData.partclient && subClientData.partclient.length > 0) {
-                // Handle subclient with partclients
-                // Total column (first column for this subclient)
-                const grossCell = worksheet.getCell(worksheet.getColumn(currentCol).letter + rowIndex);
-                const grossValue = subClientEntry.grossInjectedUnitsTotal;
-                grossCell.value = grossValue;
-                grossCell.numFmt = '0.000';
-                grossCell.alignment = { horizontal: "center", vertical: "middle" };
-                grossCell.border = {
-                  top: { style: "thin" },
-                  left: { style: "thin" },
-                  bottom: { style: "thin" },
-                  right: { style: "thin" },
-                };
+            // Find subclient entry for this date/time
+            const subEntry = subClientData.subClientMeterData?.find(
+              e => e.date === date && e.time === time
+            ) || null;
 
-                if (grossValue <= 0) {
-                  grossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
-                  grossCell.font = { color: { argb: "9C0006" } };
-                }
+            if (subClientData.partclient && subClientData.partclient.length > 0) {
+              // Handle subclient with partclients
+              // Total column
+              const grossCell = worksheet.getCell(`${String.fromCharCode(64 + currentCol)}${rowIndex}`);
+              const grossValue = subEntry ? subEntry.grossInjectedUnitsTotal : 0;
+              grossCell.value = grossValue;
+              grossCell.numFmt = '0.000';
 
-                // Next columns are for partclients (NET Total after Losses)
-                subClientData.partclient.forEach((partClient, partIndex) => {
-                  const partCol = currentCol + 1 + partIndex;
-                  const netLossCell = worksheet.getCell(worksheet.getColumn(partCol).letter + rowIndex);
+              if (grossValue <= 0) {
+                grossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
+                grossCell.font = { color: { argb: "9C0006" } };
+              }
 
-                  // Calculate net total after losses based on sharing percentage
-                  const sharingPercentage = partClient.sharingPercentage;
-                  const netLossValue = (subClientEntry.netTotalAfterLosses * sharingPercentage) / 100;
+              // Partclient columns
+              subClientData.partclient.forEach((partClient, partIndex) => {
+                const partCol = currentCol + 1 + partIndex;
+                const netLossCell = worksheet.getCell(`${String.fromCharCode(64 + partCol)}${rowIndex}`);
 
-                  netLossCell.value = netLossValue;
-                  netLossCell.numFmt = '0.000';
-                  netLossCell.alignment = { horizontal: "center", vertical: "middle" };
-                  netLossCell.border = {
-                    top: { style: "thin" },
-                    left: { style: "thin" },
-                    bottom: { style: "thin" },
-                    right: { style: "thin" },
-                  };
+                // Calculate net total after losses
+                const sharingPercentage = partClient.sharingPercentage;
+                const netValue = subEntry ? (subEntry.netTotalAfterLosses * sharingPercentage) / 100 : 0;
 
-                  if (netLossValue <= 0) {
-                    netLossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
-                    netLossCell.font = { color: { argb: "9C0006" } };
-                  }
-                });
-
-                currentCol += 1 + subClientData.partclient.length;
-              } else {
-                // Handle subclient without partclients
-                // Total column
-                const grossCell = worksheet.getCell(worksheet.getColumn(currentCol).letter + rowIndex);
-                const grossValue = subClientEntry.grossInjectedUnitsTotal;
-                grossCell.value = grossValue;
-                grossCell.numFmt = '0.000';
-                grossCell.alignment = { horizontal: "center", vertical: "middle" };
-                grossCell.border = {
-                  top: { style: "thin" },
-                  left: { style: "thin" },
-                  bottom: { style: "thin" },
-                  right: { style: "thin" },
-                };
-
-                if (grossValue <= 0) {
-                  grossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
-                  grossCell.font = { color: { argb: "9C0006" } };
-                }
-
-                // NET column
-                const netLossCell = worksheet.getCell(worksheet.getColumn(currentCol + 1).letter + rowIndex);
-                const netLossValue = subClientEntry.netTotalAfterLosses;
-                netLossCell.value = netLossValue;
+                netLossCell.value = netValue;
                 netLossCell.numFmt = '0.000';
-                netLossCell.alignment = { horizontal: "center", vertical: "middle" };
-                netLossCell.border = {
-                  top: { style: "thin" },
-                  left: { style: "thin" },
-                  bottom: { style: "thin" },
-                  right: { style: "thin" },
-                };
 
-                if (netLossValue <= 0) {
+                if (netValue <= 0) {
                   netLossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
                   netLossCell.font = { color: { argb: "9C0006" } };
                 }
+              });
 
-                currentCol += 2;
-              }
+              currentCol += 1 + subClientData.partclient.length;
             } else {
-              // No entry found - set to 0 instead of skipping
-              if (subClientData.partclient && subClientData.partclient.length > 0) {
-                // For subclient with partclients
-                // Total column
-                const grossCell = worksheet.getCell(worksheet.getColumn(currentCol).letter + rowIndex);
-                grossCell.value = 0;
-                grossCell.numFmt = '0.000';
-                grossCell.alignment = { horizontal: "center", vertical: "middle" };
-                grossCell.border = {
-                  top: { style: "thin" },
-                  left: { style: "thin" },
-                  bottom: { style: "thin" },
-                  right: { style: "thin" },
-                };
+              // Handle subclient without partclients
+              // Total column
+              const grossCell = worksheet.getCell(`${String.fromCharCode(64 + currentCol)}${rowIndex}`);
+              const grossValue = subEntry ? subEntry.grossInjectedUnitsTotal : 0;
+              grossCell.value = grossValue;
+              grossCell.numFmt = '0.000';
 
-                // Next columns are for partclients (NET Total after Losses)
-                subClientData.partclient.forEach((partClient, partIndex) => {
-                  const partCol = currentCol + 1 + partIndex;
-                  const netLossCell = worksheet.getCell(worksheet.getColumn(partCol).letter + rowIndex);
-                  netLossCell.value = 0;
-                  netLossCell.numFmt = '0.000';
-                  netLossCell.alignment = { horizontal: "center", vertical: "middle" };
-                  netLossCell.border = {
-                    top: { style: "thin" },
-                    left: { style: "thin" },
-                    bottom: { style: "thin" },
-                    right: { style: "thin" },
-                  };
-                });
-
-                currentCol += 1 + subClientData.partclient.length;
-              } else {
-                // For subclient without partclients
-                // Total column
-                const grossCell = worksheet.getCell(worksheet.getColumn(currentCol).letter + rowIndex);
-                grossCell.value = 0;
-                grossCell.numFmt = '0.000';
-                grossCell.alignment = { horizontal: "center", vertical: "middle" };
-                grossCell.border = {
-                  top: { style: "thin" },
-                  left: { style: "thin" },
-                  bottom: { style: "thin" },
-                  right: { style: "thin" },
-                };
-
-                // NET column
-                const netLossCell = worksheet.getCell(worksheet.getColumn(currentCol + 1).letter + rowIndex);
-                netLossCell.value = 0;
-                netLossCell.numFmt = '0.000';
-                netLossCell.alignment = { horizontal: "center", vertical: "middle" };
-                netLossCell.border = {
-                  top: { style: "thin" },
-                  left: { style: "thin" },
-                  bottom: { style: "thin" },
-                  right: { style: "thin" },
-                };
-
-                currentCol += 2;
+              if (grossValue <= 0) {
+                grossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
+                grossCell.font = { color: { argb: "9C0006" } };
               }
+
+              // NET column
+              const netLossCell = worksheet.getCell(`${String.fromCharCode(64 + currentCol + 1)}${rowIndex}`);
+              const netValue = subEntry ? subEntry.netTotalAfterLosses : 0;
+              netLossCell.value = netValue;
+              netLossCell.numFmt = '0.000';
+
+              if (netValue <= 0) {
+                netLossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
+                netLossCell.font = { color: { argb: "9C0006" } };
+              }
+
+              currentCol += 2;
             }
           });
 
-          // Style the row - only up to lastColumn
+          // Style the row
           for (let col = 1; col <= lastColumn; col++) {
             const cell = worksheet.getCell(rowIndex, col);
-            if (cell.value !== undefined) {
-              cell.alignment = { horizontal: "center", vertical: "middle" };
-              cell.border = {
-                top: { style: "thin" },
-                left: { style: "thin" },
-                bottom: { style: "thin" },
-                right: { style: "thin" },
-              };
-            }
+            cell.alignment = { horizontal: "center", vertical: "middle" };
+            cell.border = {
+              top: { style: "thin" },
+              left: { style: "thin" },
+              bottom: { style: "thin" },
+              right: { style: "thin" },
+            };
           }
+
           rowIndex++;
-        });
+        }
       });
 
       // Apply borders to all header rows dynamically
