@@ -1409,12 +1409,17 @@ exports.downloadDailyReportPDF = async (req, res) => {
         });
         doc.pipe(res);
 
+        const subClientCount = Math.max(dailyReport.subClient.length, 2);
+
         const titleFont = "Helvetica-Bold";
         const headerFont = "Helvetica-Bold";
         const dataFont = "Helvetica";
         const titleFontSize = 13;
-        const headerFontSize = 7.5;
-        const dataFontSize = 6.5;
+        const headerFontSize = subClientCount > 2 ? Math.max(5, 7.5 - (subClientCount - 2) * 0.2) : 7.5;
+        const dataFontSize = subClientCount > 2 ? Math.max(5, 6.5 - (subClientCount - 2) * 0.8) : 6.5;
+        const totalFontSize = subClientCount > 2 ? Math.max(5, 7 - (subClientCount - 2) * 0.3) : 7
+
+        console.log(totalFontSize, '<--totalFontSize');
 
         const colors = {
             titleBg: "#bdd7ee",
@@ -1436,14 +1441,13 @@ exports.downloadDailyReportPDF = async (req, res) => {
             monthDate: 20,
             clientHeader: 28,
             meterHeader: 22,
-            dataHeader: 16,
+            dataHeader: subClientCount > 2 ? 24 : 16,
             dataRow: 14,
             totalsRow: 15,
         };
 
         // === Dynamic width logic ===
         const usableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-        const subClientCount = Math.max(dailyReport.subClient.length, 2);
         const totalCols = 1 + 2 + (5 * subClientCount) + 4;
         const colWidth = usableWidth / totalCols;
 
@@ -1917,7 +1921,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
             .fillAndStroke(colors.grayBg, colors.borderColor);
 
         doc.font(headerFont)
-            .fontSize(headerFontSize)
+            .fontSize(totalFontSize)
             .fillColor(colors.blackText)
             .text('Total', 15, yCentered, {
                 width: colWidths.date,
@@ -1930,7 +1934,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
             .fillAndStroke(colors.mainClientBg, colors.borderColor);
 
         doc.font(headerFont)
-            .fontSize(headerFontSize)
+            .fontSize(totalFontSize)
             .fillColor(colors.blackText)
             .text(typeof dailyReport.mainClient.totalexport === 'number' ? dailyReport.mainClient.totalexport.toFixed(1) : dailyReport.mainClient.totalexport,
                 15 + colWidths.date, yCentered, {
@@ -1943,7 +1947,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
             .fillAndStroke(colors.mainClientBg, colors.borderColor);
 
         doc.font(headerFont)
-            .fontSize(headerFontSize)
+            .fontSize(totalFontSize)
             .fillColor(colors.blackText)
             .text(typeof dailyReport.mainClient.totalimport === 'number' ? dailyReport.mainClient.totalimport.toFixed(1) : dailyReport.mainClient.totalimport,
                 15 + colWidths.date + colWidths.mainExport, yCentered, {
@@ -1962,7 +1966,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
                 .fillAndStroke(color, colors.borderColor)
 
             doc.font(headerFont)
-                .fontSize(headerFontSize)
+                .fontSize(totalFontSize)
                 .fillColor(colors.blackText)
                 .text(typeof subClient.totalexport === 'number' ? subClient.totalexport.toFixed(1) : subClient.totalexport,
                     startX, yCentered, {
@@ -1976,7 +1980,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
                 .fillAndStroke(color, colors.borderColor);
 
             doc.font(headerFont)
-                .fontSize(headerFontSize)
+                .fontSize(totalFontSize)
                 .fillColor(colors.blackText)
                 .text(typeof subClient.totalloggerdata === 'number' ? subClient.totalloggerdata.toFixed(1) : subClient.totalloggerdata,
                     startX + colWidths.subExport, yCentered, {
@@ -1991,7 +1995,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
 
             const internalLoss = typeof subClient.totalinternallosse === 'number' ? subClient.totalinternallosse.toFixed(1) : subClient.totalinternallosse;
             doc.font(headerFont)
-                .fontSize(headerFontSize)
+                .fontSize(totalFontSize)
                 .fillColor(subClient.totalinternallosse < 0 ? colors.redText : colors.blackText)
                 .text(internalLoss, startX + (2 * colWidths.subExport), yCentered, {
                     width: colWidths.subExport,
@@ -2007,7 +2011,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
                 .fillAndStroke(lossBgColor, colors.borderColor);
 
             doc.font(headerFont)
-                .fontSize(headerFontSize)
+                .fontSize(totalFontSize)
                 .fillColor(subClient.totallossinparsantege < 0 ? colors.redText : colors.blackText)
                 .text(lossPercent, startX + (3 * colWidths.subExport), yCentered, {
                     width: colWidths.subExport,
@@ -2020,7 +2024,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
                 .fillAndStroke(color, colors.borderColor);
 
             doc.font(headerFont)
-                .fontSize(headerFontSize)
+                .fontSize(totalFontSize)
                 .fillColor(colors.blackText)
                 .text(typeof subClient.totalimport === 'number' ? subClient.totalimport.toFixed(1) : subClient.totalimport,
                     startX + (4 * colWidths.subExport), yCentered, {
@@ -2050,7 +2054,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
                 .fillAndStroke(bgColor, colors.borderColor);
 
             doc.font(headerFont)
-                .fontSize(headerFontSize)
+                .fontSize(totalFontSize)
                 .fillColor(textColor)
                 .text(formattedValue, acLineStartX + (i * colWidths.acLine), yCentered, {
                     width: colWidths.acLine,
