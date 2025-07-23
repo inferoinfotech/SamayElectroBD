@@ -6,6 +6,7 @@ const logger = require('../../utils/logger');
 const LoggerData = require('../../models/v1/loggerData.model');
 const { log } = require('winston');
 const ExcelJS = require('exceljs');
+const PDFDocument = require('pdfkit');
 
 // Helper function to calculate export and import for each entry
 const calculateExportImport = (meterData, mf, pn) => {
@@ -1367,6 +1368,706 @@ exports.downloadDailyReportExcel = async (req, res) => {
         logger.error(`Error generating Daily Report Excel: ${error.message}`);
         res.status(500).json({
             message: 'Error generating Daily Report Excel',
+            error: error.message
+        });
+    }
+};
+
+
+exports.downloadDailyReportPDF = async (req, res) => {
+    try {
+        const { dailyReportId } = req.params;
+        const dailyReport = await DailyReport.findById(dailyReportId)
+            .populate('mainClientId')
+            .populate('subClient.subClientId');
+
+        if (!dailyReport) {
+            return res.status(404).json({ message: 'Daily Report not found' });
+        }
+
+        // Get month name and format for filename
+        const filemonthName = getMonthName(dailyReport.month).toUpperCase();
+        const year = dailyReport.year;
+        const mainClientName = dailyReport.mainClient.mainClientDetail.name
+            .replace(/\s+/g, '_')       // Replace spaces with underscores
+            .replace(/\//g, '_')        // Replace forward slashes with underscores
+            .toUpperCase();
+
+        // Format filename
+        const fileName = `Daily Generation Report - ${mainClientName} Month of ${filemonthName}-${year}.pdf`;
+
+        // Set response headers
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader(
+            'Content-Disposition',
+            `attachment; filename="${encodeURIComponent(fileName)}"`
+        );
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+
+        // Create PDF document in landscape mode
+        const doc = new PDFDocument({
+            size: 'A4',
+            layout: 'landscape',
+            margins: { top: 20, bottom: 20, left: 15, right: 15 }
+        });
+
+        // Pipe the PDF to the response
+        doc.pipe(res);
+
+        // ====================
+        // PDF STYLING
+        // ====================
+        const titleFont = 'Helvetica-Bold';
+        const headerFont = 'Helvetica-Bold';
+        const dataFont = 'Helvetica';
+        const titleFontSize = 16;
+        const headerFontSize = 10;
+        const dataFontSize = 9;
+
+        // Color scheme matching Excel
+        const colors = {
+            titleBg: '#bdd7ee',      // Light blue (title background)
+            monthBg: '#bfbfbf',       // Gray (month cell background)
+            mainClientBg: '#ffc000',  // Orange (main client)
+            subClient1Bg: '#FFFF00',  // Yellow (sub-client 1)
+            subClient2Bg: '#92D050',  // Green (sub-client 2)
+            acLineBg: '#fac6c6',      // Light red (AC line)
+            negativeLossBg: '#ffc7ce',// Light red (negative loss)
+            redText: '#FF0000',       // Red text
+            blackText: '#000000',     // Black text
+            whiteBg: '#FFFFFF',        // White background
+            borderColor: '#000000',    // Black borders
+            grayBg: '#D9D9D9'          // Light gray
+        };
+
+        // Column widths (approximate proportions from Excel)
+        const colWidths = {
+            date: 50,                  // Date column
+            mainExport: 40,            // Main client export
+            mainImport: 40,            // Main client import
+            subExport: 35,             // Sub-client export
+            subData: 35,               // Sub-client logger data
+            subLoss: 35,               // Sub-client internal loss
+            subPercent: 35,            // Sub-client loss %
+            subImport: 35,             // Sub-client import
+            acLine: 35                // AC line columns
+        };
+
+        // Row heights
+        const rowHeights = {
+            title: 30,
+            monthDate: 30,
+            clientHeader: 40,
+            meterHeader: 40,
+            dataHeader: 25,
+            dataRow: 24,
+            totalsRow: 25
+        };
+
+        // Starting position
+        let currentY = 20;
+
+        // ====================
+        // TITLE ROW
+        // ====================
+        const titleText = `${dailyReport.mainClient.mainClientDetail.name} - ${(dailyReport.mainClient.mainClientDetail.acCapacityKw / 1000).toFixed(2)} MW AC Generation Details`;
+        
+        // Calculate total width based on number of sub-clients
+        const subClientCount = Math.max(dailyReport.subClient.length, 2); // Minimum 2 sub-clients
+        const subClientCols = subClientCount * 5;
+        const totalWidth = colWidths.date + colWidths.mainExport + colWidths.mainImport + 
+                          (subClientCols * colWidths.subExport) + (4 * colWidths.acLine);
+
+        // Title background
+        doc.rect(15, currentY, totalWidth, rowHeights.title)
+            .fill(colors.titleBg)
+            .stroke(colors.borderColor);
+
+        // Title text
+        doc.font(titleFont)
+            .fontSize(titleFontSize)
+            .fillColor(colors.blackText)
+            .text(titleText, 15, currentY + 7, {
+                width: totalWidth,
+                align: 'center'
+            });
+
+        currentY += rowHeights.title;
+
+        // ====================
+        // MONTH AND DATE RANGE ROW
+        // ====================
+        const monthName = getMonthName(dailyReport.month);
+        const yearShort = dailyReport.year.toString().slice(-2);
+        const lastDay = new Date(dailyReport.year, dailyReport.month, 0).getDate();
+        const dateRange = `01-${String(dailyReport.month).padStart(2, '0')}-${dailyReport.year} to ${lastDay}-${String(dailyReport.month).padStart(2, '0')}-${dailyReport.year}`;
+
+        // Calculate widths for month and date range sections
+        const monthWidth = colWidths.date + colWidths.mainExport + colWidths.mainImport + 
+                          (5 * colWidths.subExport); // Width for one sub-client section
+        const dateRangeWidth = totalWidth - monthWidth;
+
+        // Month cell
+        doc.rect(15, currentY, monthWidth, rowHeights.monthDate)
+            .fill(colors.monthBg)
+            .stroke(colors.borderColor);
+
+        doc.font(headerFont)
+            .fontSize(14)
+            .fillColor(colors.redText)
+            .text(`Month: ${monthName}-${yearShort}`, 15, currentY + 7, {
+                width: monthWidth,
+                align: 'center'
+            });
+
+        // Date range cell
+        doc.rect(15 + monthWidth, currentY, dateRangeWidth, rowHeights.monthDate)
+            .fill(colors.monthBg)
+            .stroke(colors.borderColor);
+
+        doc.font(headerFont)
+            .fontSize(14)
+            .fillColor(colors.redText)
+            .text(`Generation Period: ${dateRange}`, 15 + monthWidth, currentY + 7, {
+                width: dateRangeWidth,
+                align: 'center'
+            });
+
+        currentY += rowHeights.monthDate;
+
+        // ====================
+        // CLIENT NAMES ROW
+        // ====================
+        // NAME=> cell
+        doc.rect(15, currentY, colWidths.date, rowHeights.clientHeader)
+            .fill(colors.grayBg)
+            .stroke(colors.borderColor);
+
+        doc.font(headerFont)
+            .fontSize(headerFontSize)
+            .fillColor(colors.blackText)
+            .text('NAME=>', 15, currentY + 15, {
+                width: colWidths.date,
+                align: 'center'
+            });
+
+        // TOTAL-GETCO SS cell (merged)
+        doc.rect(15 + colWidths.date, currentY, colWidths.mainExport + colWidths.mainImport, rowHeights.clientHeader)
+            .fill(colors.mainClientBg)
+            .stroke(colors.borderColor);
+
+        doc.font(headerFont)
+            .fontSize(headerFontSize)
+            .fillColor(colors.blackText)
+            .text('TOTAL-GETCO\nSS', 15 + colWidths.date, currentY + 10, {
+                width: colWidths.mainExport + colWidths.mainImport,
+                align: 'center',
+                lineGap: 3
+            });
+
+        // Sub-client cells
+        dailyReport.subClient.forEach((subClient, index) => {
+            const startX = 15 + colWidths.date + colWidths.mainExport + colWidths.mainImport + (index * 5 * colWidths.subExport);
+            const color = index % 2 === 0 ? colors.subClient1Bg : colors.subClient2Bg;
+
+            doc.rect(startX, currentY, 5 * colWidths.subExport, rowHeights.clientHeader)
+                .fill(color)
+                .stroke(colors.borderColor);
+
+            doc.font(headerFont)
+                .fontSize(headerFontSize)
+                .fillColor(colors.blackText)
+                .text(subClient.name, startX, currentY + 15, {
+                    width: 5 * colWidths.subExport,
+                    align: 'center'
+                });
+        });
+
+        // AC LINE LOSS DIFF header (merged with next row)
+        const acLineStartX = 15 + colWidths.date + colWidths.mainExport + colWidths.mainImport + 
+                           (dailyReport.subClient.length * 5 * colWidths.subExport);
+        
+        doc.rect(acLineStartX, currentY, 4 * colWidths.acLine, rowHeights.clientHeader * 2)
+            .fill(colors.acLineBg)
+            .stroke(colors.borderColor);
+
+        doc.font(headerFont)
+            .fontSize(headerFontSize)
+            .fillColor(colors.redText)
+            .text('AC LINE LOSS DIFF.', acLineStartX, currentY + 25, {
+                width: 4 * colWidths.acLine,
+                align: 'center'
+            });
+
+        currentY += rowHeights.clientHeader;
+
+        // ====================
+        // METER NUMBERS ROW
+        // ====================
+        // METER NO.=> cell
+        doc.rect(15, currentY, colWidths.date, rowHeights.meterHeader)
+            .fill(colors.grayBg)
+            .stroke(colors.borderColor);
+
+        doc.font(headerFont)
+            .fontSize(headerFontSize)
+            .fillColor(colors.blackText)
+            .text('METER NO.=>', 15, currentY + 15, {
+                width: colWidths.date,
+                align: 'center'
+            });
+
+        // Main client meter number (merged)
+        doc.rect(15 + colWidths.date, currentY, colWidths.mainExport + colWidths.mainImport, rowHeights.meterHeader)
+            .fill(colors.mainClientBg)
+            .stroke(colors.borderColor);
+
+        doc.font(headerFont)
+            .fontSize(headerFontSize)
+            .fillColor(colors.blackText)
+            .text(dailyReport.mainClient.meterNumber, 15 + colWidths.date, currentY + 15, {
+                width: colWidths.mainExport + colWidths.mainImport,
+                align: 'center'
+            });
+
+        // Sub-client meter numbers
+        dailyReport.subClient.forEach((subClient, index) => {
+            const startX = 15 + colWidths.date + colWidths.mainExport + colWidths.mainImport + (index * 5 * colWidths.subExport);
+            const color = index % 2 === 0 ? colors.subClient1Bg : colors.subClient2Bg;
+
+            doc.rect(startX, currentY, 5 * colWidths.subExport, rowHeights.meterHeader)
+                .fill(color)
+                .stroke(colors.borderColor);
+
+            doc.font(headerFont)
+                .fontSize(headerFontSize)
+                .fillColor(colors.blackText)
+                .text(subClient.meterNumber, startX, currentY + 15, {
+                    width: 5 * colWidths.subExport,
+                    align: 'center'
+                });
+        });
+
+        currentY += rowHeights.meterHeader;
+
+        // ====================
+        // HEADERS ROW
+        // ====================
+        // DATE header
+        doc.rect(15, currentY, colWidths.date, rowHeights.dataHeader)
+            .fill(colors.grayBg)
+            .stroke(colors.borderColor);
+
+        doc.font(headerFont)
+            .fontSize(headerFontSize)
+            .fillColor(colors.blackText)
+            .text('DATE', 15, currentY + 7, {
+                width: colWidths.date,
+                align: 'center'
+            });
+
+        // Main client headers
+        doc.rect(15 + colWidths.date, currentY, colWidths.mainExport, rowHeights.dataHeader)
+            .fill(colors.mainClientBg)
+            .stroke(colors.borderColor);
+
+        doc.font(headerFont)
+            .fontSize(headerFontSize)
+            .fillColor(colors.blackText)
+            .text('Export', 15 + colWidths.date, currentY + 7, {
+                width: colWidths.mainExport,
+                align: 'center'
+            });
+
+        doc.rect(15 + colWidths.date + colWidths.mainExport, currentY, colWidths.mainImport, rowHeights.dataHeader)
+            .fill(colors.mainClientBg)
+            .stroke(colors.borderColor);
+
+        doc.font(headerFont)
+            .fontSize(headerFontSize)
+            .fillColor(colors.blackText)
+            .text('Import', 15 + colWidths.date + colWidths.mainExport, currentY + 7, {
+                width: colWidths.mainImport,
+                align: 'center'
+            });
+
+        // Sub-client headers
+        dailyReport.subClient.forEach((subClient, index) => {
+            const startX = 15 + colWidths.date + colWidths.mainExport + colWidths.mainImport + (index * 5 * colWidths.subExport);
+            const color = index % 2 === 0 ? colors.subClient1Bg : colors.subClient2Bg;
+            const headers = ['Export', 'Logger Data', 'Internal Loss', 'Loss in%', 'Import'];
+            const textColors = ['000000', '000000', 'FF0000', 'FF0000', '000000'];
+
+            headers.forEach((header, i) => {
+                doc.rect(startX + (i * colWidths.subExport), currentY, colWidths.subExport, rowHeights.dataHeader)
+                    .fill(color)
+                    .stroke(colors.borderColor);
+
+                doc.font(headerFont)
+                    .fontSize(headerFontSize)
+                    .fillColor(textColors[i] === 'FF0000' ? colors.redText : colors.blackText)
+                    .text(header, startX + (i * colWidths.subExport), currentY + 7, {
+                        width: colWidths.subExport,
+                        align: 'center'
+                    });
+            });
+        });
+
+        // AC LINE LOSS DIFF headers
+        const acLineHeaders = ['Export', 'Loss in%', 'Import', 'Loss in%'];
+        acLineHeaders.forEach((header, i) => {
+            doc.rect(acLineStartX + (i * colWidths.acLine), currentY, colWidths.acLine, rowHeights.dataHeader)
+                .fill(colors.acLineBg)
+                .stroke(colors.borderColor);
+
+            doc.font(headerFont)
+                .fontSize(headerFontSize)
+                .fillColor(colors.redText)
+                .text(header, acLineStartX + (i * colWidths.acLine), currentY + 7, {
+                    width: colWidths.acLine,
+                    align: 'center'
+                });
+        });
+
+        currentY += rowHeights.dataHeader;
+
+        // ====================
+        // DATA ROWS
+        // ====================
+        dailyReport.mainClient.loggerdatas.forEach(dayData => {
+            // Check if we need a new page
+            if (currentY + rowHeights.dataRow > doc.page.height - 20) {
+                doc.addPage({
+                    size: 'A4',
+                    layout: 'landscape',
+                    margins: { top: 20, bottom: 20, left: 15, right: 15 }
+                });
+                currentY = 20;
+            }
+
+            // Date cell
+            doc.rect(15, currentY, colWidths.date, rowHeights.dataRow)
+                .fill(colors.grayBg)
+                .stroke(colors.borderColor);
+
+            doc.font(dataFont)
+                .fontSize(dataFontSize)
+                .fillColor(colors.blackText)
+                .text(dayData.date, 15, currentY + 7, {
+                    width: colWidths.date,
+                    align: 'center'
+                });
+
+            // Main client data
+            doc.rect(15 + colWidths.date, currentY, colWidths.mainExport, rowHeights.dataRow)
+                .fill(colors.mainClientBg)
+                .stroke(colors.borderColor);
+
+            doc.font(dataFont)
+                .fontSize(dataFontSize)
+                .fillColor(colors.blackText)
+                .text(typeof dayData.export === 'number' ? dayData.export.toFixed(1) : dayData.export, 
+                      15 + colWidths.date, currentY + 7, {
+                    width: colWidths.mainExport,
+                    align: 'center'
+                });
+
+            doc.rect(15 + colWidths.date + colWidths.mainExport, currentY, colWidths.mainImport, rowHeights.dataRow)
+                .fill(colors.mainClientBg)
+                .stroke(colors.borderColor);
+
+            doc.font(dataFont)
+                .fontSize(dataFontSize)
+                .fillColor(colors.blackText)
+                .text(typeof dayData.import === 'number' ? dayData.import.toFixed(1) : dayData.import, 
+                      15 + colWidths.date + colWidths.mainExport, currentY + 7, {
+                    width: colWidths.mainImport,
+                    align: 'center'
+                });
+
+            // Sub-client data
+            dailyReport.subClient.forEach((subClient, index) => {
+                const subDayData = subClient.loggerdatas.find(d => d.date === dayData.date);
+                const startX = 15 + colWidths.date + colWidths.mainExport + colWidths.mainImport + (index * 5 * colWidths.subExport);
+                const color = index % 2 === 0 ? colors.subClient1Bg : colors.subClient2Bg;
+
+                if (subDayData) {
+                    // Export
+                    doc.rect(startX, currentY, colWidths.subExport, rowHeights.dataRow)
+                        .fill(color)
+                        .stroke(colors.borderColor);
+
+                    doc.font(dataFont)
+                        .fontSize(dataFontSize)
+                        .fillColor(colors.blackText)
+                        .text(typeof subDayData.export === 'number' ? subDayData.export.toFixed(1) : subDayData.export, 
+                              startX, currentY + 7, {
+                            width: colWidths.subExport,
+                            align: 'center'
+                        });
+
+                    // Logger Data
+                    doc.rect(startX + colWidths.subExport, currentY, colWidths.subExport, rowHeights.dataRow)
+                        .fill(color)
+                        .stroke(colors.borderColor);
+
+                    doc.font(dataFont)
+                        .fontSize(dataFontSize)
+                        .fillColor(colors.blackText)
+                        .text(typeof subDayData.loggerdata === 'number' ? subDayData.loggerdata.toFixed(1) : subDayData.loggerdata, 
+                              startX + colWidths.subExport, currentY + 7, {
+                            width: colWidths.subExport,
+                            align: 'center'
+                        });
+
+                    // Internal Loss (red if negative)
+                    doc.rect(startX + (2 * colWidths.subExport), currentY, colWidths.subExport, rowHeights.dataRow)
+                        .fill(color)
+                        .stroke(colors.borderColor);
+
+                    const internalLoss = typeof subDayData.internallosse === 'number' ? subDayData.internallosse.toFixed(1) : subDayData.internallosse;
+                    doc.font(dataFont)
+                        .fontSize(dataFontSize)
+                        .fillColor(subDayData.internallosse < 0 ? colors.redText : colors.blackText)
+                        .text(internalLoss, startX + (2 * colWidths.subExport), currentY + 7, {
+                            width: colWidths.subExport,
+                            align: 'center'
+                        });
+
+                    // Loss in% (red if negative, with special background)
+                    const lossPercent = typeof subDayData.lossinparsantege === 'number' ? subDayData.lossinparsantege.toFixed(1) + '%' : subDayData.lossinparsantege;
+                    const lossBgColor = subDayData.lossinparsantege < 0 ? colors.negativeLossBg : color;
+                    
+                    doc.rect(startX + (3 * colWidths.subExport), currentY, colWidths.subExport, rowHeights.dataRow)
+                        .fill(lossBgColor)
+                        .stroke(colors.borderColor);
+
+                    doc.font(dataFont)
+                        .fontSize(dataFontSize)
+                        .fillColor(subDayData.lossinparsantege < 0 ? colors.redText : colors.blackText)
+                        .text(lossPercent, startX + (3 * colWidths.subExport), currentY + 7, {
+                            width: colWidths.subExport,
+                            align: 'center'
+                        });
+
+                    // Import
+                    doc.rect(startX + (4 * colWidths.subExport), currentY, colWidths.subExport, rowHeights.dataRow)
+                        .fill(color)
+                        .stroke(colors.borderColor);
+
+                    doc.font(dataFont)
+                        .fontSize(dataFontSize)
+                        .fillColor(colors.blackText)
+                        .text(typeof subDayData.import === 'number' ? subDayData.import.toFixed(1) : subDayData.import, 
+                              startX + (4 * colWidths.subExport), currentY + 7, {
+                            width: colWidths.subExport,
+                            align: 'center'
+                        });
+                }
+            });
+
+            // AC Line Loss Diff data
+            const acLineDayData = dailyReport.aclinelossdiffrence.loggerdatas.find(d => d.date === dayData.date);
+            if (acLineDayData) {
+                const values = [
+                    { value: acLineDayData.export, isLossPercent: false },
+                    { value: acLineDayData.lossinparsantegeexport, isLossPercent: true },
+                    { value: acLineDayData.import, isLossPercent: false },
+                    { value: acLineDayData.lossinparsantegeimport, isLossPercent: true }
+                ];
+
+                values.forEach((item, i) => {
+                    const formattedValue = typeof item.value === 'number' ?
+                        (item.isLossPercent ? `${item.value.toFixed(1)}%` : item.value.toFixed(1)) :
+                        item.value;
+                    
+                    const bgColor = item.value < 0 ? colors.acLineBg : colors.whiteBg;
+                    const textColor = item.value < 0 ? colors.redText : colors.blackText;
+
+                    doc.rect(acLineStartX + (i * colWidths.acLine), currentY, colWidths.acLine, rowHeights.dataRow)
+                        .fill(bgColor)
+                        .stroke(colors.borderColor);
+
+                    doc.font(dataFont)
+                        .fontSize(dataFontSize)
+                        .fillColor(textColor)
+                        .text(formattedValue, acLineStartX + (i * colWidths.acLine), currentY + 7, {
+                            width: colWidths.acLine,
+                            align: 'center'
+                        });
+                });
+            }
+
+            currentY += rowHeights.dataRow;
+        });
+
+        // ====================
+        // TOTALS ROW
+        // ====================
+        // Check if we need a new page for totals row
+        if (currentY + rowHeights.totalsRow > doc.page.height - 20) {
+            doc.addPage({
+                size: 'A4',
+                layout: 'landscape',
+                margins: { top: 20, bottom: 20, left: 15, right: 15 }
+            });
+            currentY = 20;
+        }
+
+        // Label
+        doc.rect(15, currentY, colWidths.date, rowHeights.totalsRow)
+            .fill(colors.grayBg)
+            .stroke(colors.borderColor);
+
+        doc.font(headerFont)
+            .fontSize(headerFontSize)
+            .fillColor(colors.blackText)
+            .text('Total', 15, currentY + 7, {
+                width: colWidths.date,
+                align: 'center'
+            });
+
+        // Main client totals
+        doc.rect(15 + colWidths.date, currentY, colWidths.mainExport, rowHeights.totalsRow)
+            .fill(colors.mainClientBg)
+            .stroke(colors.borderColor);
+
+        doc.font(headerFont)
+            .fontSize(headerFontSize)
+            .fillColor(colors.blackText)
+            .text(typeof dailyReport.mainClient.totalexport === 'number' ? dailyReport.mainClient.totalexport.toFixed(1) : dailyReport.mainClient.totalexport, 
+                  15 + colWidths.date, currentY + 7, {
+                width: colWidths.mainExport,
+                align: 'center'
+            });
+
+        doc.rect(15 + colWidths.date + colWidths.mainExport, currentY, colWidths.mainImport, rowHeights.totalsRow)
+            .fill(colors.mainClientBg)
+            .stroke(colors.borderColor);
+
+        doc.font(headerFont)
+            .fontSize(headerFontSize)
+            .fillColor(colors.blackText)
+            .text(typeof dailyReport.mainClient.totalimport === 'number' ? dailyReport.mainClient.totalimport.toFixed(1) : dailyReport.mainClient.totalimport, 
+                  15 + colWidths.date + colWidths.mainExport, currentY + 7, {
+                width: colWidths.mainImport,
+                align: 'center'
+            });
+
+        // Sub-client totals
+        dailyReport.subClient.forEach((subClient, index) => {
+            const startX = 15 + colWidths.date + colWidths.mainExport + colWidths.mainImport + (index * 5 * colWidths.subExport);
+            const color = index % 2 === 0 ? colors.subClient1Bg : colors.subClient2Bg;
+
+            // Export total
+            doc.rect(startX, currentY, colWidths.subExport, rowHeights.totalsRow)
+                .fill(color)
+                .stroke(colors.borderColor);
+
+            doc.font(headerFont)
+                .fontSize(headerFontSize)
+                .fillColor(colors.blackText)
+                .text(typeof subClient.totalexport === 'number' ? subClient.totalexport.toFixed(1) : subClient.totalexport, 
+                      startX, currentY + 7, {
+                    width: colWidths.subExport,
+                    align: 'center'
+                });
+
+            // Logger Data total
+            doc.rect(startX + colWidths.subExport, currentY, colWidths.subExport, rowHeights.totalsRow)
+                .fill(color)
+                .stroke(colors.borderColor);
+
+            doc.font(headerFont)
+                .fontSize(headerFontSize)
+                .fillColor(colors.blackText)
+                .text(typeof subClient.totalloggerdata === 'number' ? subClient.totalloggerdata.toFixed(1) : subClient.totalloggerdata, 
+                      startX + colWidths.subExport, currentY + 7, {
+                    width: colWidths.subExport,
+                    align: 'center'
+                });
+
+            // Internal Loss total (red if negative)
+            doc.rect(startX + (2 * colWidths.subExport), currentY, colWidths.subExport, rowHeights.totalsRow)
+                .fill(color)
+                .stroke(colors.borderColor);
+
+            const internalLoss = typeof subClient.totalinternallosse === 'number' ? subClient.totalinternallosse.toFixed(1) : subClient.totalinternallosse;
+            doc.font(headerFont)
+                .fontSize(headerFontSize)
+                .fillColor(subClient.totalinternallosse < 0 ? colors.redText : colors.blackText)
+                .text(internalLoss, startX + (2 * colWidths.subExport), currentY + 7, {
+                    width: colWidths.subExport,
+                    align: 'center'
+                });
+
+            // Loss in% total (red if negative, with special background)
+            const lossPercent = typeof subClient.totallossinparsantege === 'number' ? subClient.totallossinparsantege.toFixed(1) + '%' : subClient.totallossinparsantege;
+            const lossBgColor = subClient.totallossinparsantege < 0 ? colors.negativeLossBg : color;
+            
+            doc.rect(startX + (3 * colWidths.subExport), currentY, colWidths.subExport, rowHeights.totalsRow)
+                .fill(lossBgColor)
+                .stroke(colors.borderColor);
+
+            doc.font(headerFont)
+                .fontSize(headerFontSize)
+                .fillColor(subClient.totallossinparsantege < 0 ? colors.redText : colors.blackText)
+                .text(lossPercent, startX + (3 * colWidths.subExport), currentY + 7, {
+                    width: colWidths.subExport,
+                    align: 'center'
+                });
+
+            // Import total
+            doc.rect(startX + (4 * colWidths.subExport), currentY, colWidths.subExport, rowHeights.totalsRow)
+                .fill(color)
+                .stroke(colors.borderColor);
+
+            doc.font(headerFont)
+                .fontSize(headerFontSize)
+                .fillColor(colors.blackText)
+                .text(typeof subClient.totalimport === 'number' ? subClient.totalimport.toFixed(1) : subClient.totalimport, 
+                      startX + (4 * colWidths.subExport), currentY + 7, {
+                    width: colWidths.subExport,
+                    align: 'center'
+                });
+        });
+
+        // AC Line Loss Diff totals
+        const acLineTotals = [
+            { value: dailyReport.aclinelossdiffrence.totalexport, isLossPercent: false },
+            { value: dailyReport.aclinelossdiffrence.totallossinparsantegeexport, isLossPercent: true },
+            { value: dailyReport.aclinelossdiffrence.totalimport, isLossPercent: false },
+            { value: dailyReport.aclinelossdiffrence.totallossinparsantegeimport, isLossPercent: true }
+        ];
+
+        acLineTotals.forEach((item, i) => {
+            const formattedValue = typeof item.value === 'number' ?
+                (item.isLossPercent ? `${item.value.toFixed(1)}%` : item.value.toFixed(1)) :
+                item.value;
+            
+            const bgColor = item.value < 0 ? colors.acLineBg : colors.whiteBg;
+            const textColor = item.value < 0 ? colors.redText : colors.blackText;
+
+            doc.rect(acLineStartX + (i * colWidths.acLine), currentY, colWidths.acLine, rowHeights.totalsRow)
+                .fill(bgColor)
+                .stroke(colors.borderColor);
+
+            doc.font(headerFont)
+                .fontSize(headerFontSize)
+                .fillColor(textColor)
+                .text(formattedValue, acLineStartX + (i * colWidths.acLine), currentY + 7, {
+                    width: colWidths.acLine,
+                    align: 'center'
+                });
+        });
+
+        // Finalize the PDF
+        doc.end();
+
+    } catch (error) {
+        logger.error(`Error generating Daily Report PDF: ${error.message}`);
+        res.status(500).json({
+            message: 'Error generating Daily Report PDF',
             error: error.message
         });
     }
