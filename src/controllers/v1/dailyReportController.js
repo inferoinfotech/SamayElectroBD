@@ -136,7 +136,7 @@ exports.generateDailyReport = async (req, res) => {
                     dailyImport = 0;
                 }
 
-                const { export: dayExport, import: dayImport } = calculateExportImport([entry], mainClientData.mf ,mainClientData.pn);
+                const { export: dayExport, import: dayImport } = calculateExportImport([entry], mainClientData.mf, mainClientData.pn);
                 dailyExport += dayExport;
                 dailyImport += dayImport;
             }
@@ -293,7 +293,7 @@ exports.generateDailyReport = async (req, res) => {
                         dailyImport = 0;
                     }
 
-                    const { export: dayExport, import: dayImport } = calculateExportImport([entry], subClient.mf,subClient.pn);
+                    const { export: dayExport, import: dayImport } = calculateExportImport([entry], subClient.mf, subClient.pn);
                     dailyExport += dayExport;
                     dailyImport += dayImport;
                 }
@@ -1374,123 +1374,110 @@ exports.downloadDailyReportExcel = async (req, res) => {
 };
 
 
+// Full working version with portrait layout and scaled columns
 exports.downloadDailyReportPDF = async (req, res) => {
     try {
         const { dailyReportId } = req.params;
         const dailyReport = await DailyReport.findById(dailyReportId)
-            .populate('mainClientId')
-            .populate('subClient.subClientId');
+            .populate("mainClientId")
+            .populate("subClient.subClientId");
 
         if (!dailyReport) {
-            return res.status(404).json({ message: 'Daily Report not found' });
+            return res.status(404).json({ message: "Daily Report not found" });
         }
 
-        // Get month name and format for filename
         const filemonthName = getMonthName(dailyReport.month).toUpperCase();
         const year = dailyReport.year;
         const mainClientName = dailyReport.mainClient.mainClientDetail.name
-            .replace(/\s+/g, '_')       // Replace spaces with underscores
-            .replace(/\//g, '_')        // Replace forward slashes with underscores
+            .replace(/\s+/g, "_")
+            .replace(/\//g, "_")
             .toUpperCase();
 
-        // Format filename
         const fileName = `Daily Generation Report - ${mainClientName} Month of ${filemonthName}-${year}.pdf`;
 
-        // Set response headers
-        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader("Content-Type", "application/pdf");
         res.setHeader(
-            'Content-Disposition',
+            "Content-Disposition",
             `attachment; filename="${encodeURIComponent(fileName)}"`
         );
-        res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+        res.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
 
-        // Create PDF document in landscape mode
         const doc = new PDFDocument({
-            size: 'A4',
-            layout: 'landscape',
-            margins: { top: 20, bottom: 20, left: 15, right: 15 }
+            size: "A4",
+            layout: "landscape",
+            margins: { top: 10, bottom: 10, left: 15, right: 15 },
         });
-
-        // Pipe the PDF to the response
         doc.pipe(res);
 
-        // ====================
-        // PDF STYLING
-        // ====================
-        const titleFont = 'Helvetica-Bold';
-        const headerFont = 'Helvetica-Bold';
-        const dataFont = 'Helvetica';
-        const titleFontSize = 16;
-        const headerFontSize = 10;
-        const dataFontSize = 9;
+        const titleFont = "Helvetica-Bold";
+        const headerFont = "Helvetica-Bold";
+        const dataFont = "Helvetica";
+        const titleFontSize = 13;
+        const headerFontSize = 7.5;
+        const dataFontSize = 6.5;
 
-        // Color scheme matching Excel
         const colors = {
-            titleBg: '#bdd7ee',      // Light blue (title background)
-            monthBg: '#bfbfbf',       // Gray (month cell background)
-            mainClientBg: '#ffc000',  // Orange (main client)
-            subClient1Bg: '#FFFF00',  // Yellow (sub-client 1)
-            subClient2Bg: '#92D050',  // Green (sub-client 2)
-            acLineBg: '#fac6c6',      // Light red (AC line)
-            negativeLossBg: '#ffc7ce',// Light red (negative loss)
-            redText: '#FF0000',       // Red text
-            blackText: '#000000',     // Black text
-            whiteBg: '#FFFFFF',        // White background
-            borderColor: '#000000',    // Black borders
-            grayBg: '#D9D9D9'          // Light gray
+            titleBg: "#bdd7ee",
+            monthBg: "#bfbfbf",
+            mainClientBg: "#ffc000",
+            subClient1Bg: "#FFFF00",
+            subClient2Bg: "#92D050",
+            acLineBg: "#fac6c6",
+            negativeLossBg: "#ffc7ce",
+            redText: "#FF0000",
+            blackText: "#000000",
+            whiteBg: "#FFFFFF",
+            borderColor: "#000000",
+            grayBg: "#D9D9D9",
         };
 
-        // Column widths (approximate proportions from Excel)
-        const colWidths = {
-            date: 50,                  // Date column
-            mainExport: 40,            // Main client export
-            mainImport: 40,            // Main client import
-            subExport: 35,             // Sub-client export
-            subData: 35,               // Sub-client logger data
-            subLoss: 35,               // Sub-client internal loss
-            subPercent: 35,            // Sub-client loss %
-            subImport: 35,             // Sub-client import
-            acLine: 35                // AC line columns
-        };
-
-        // Row heights
         const rowHeights = {
-            title: 30,
-            monthDate: 30,
-            clientHeader: 40,
-            meterHeader: 40,
-            dataHeader: 25,
-            dataRow: 24,
-            totalsRow: 25
+            title: 20,
+            monthDate: 20,
+            clientHeader: 28,
+            meterHeader: 22,
+            dataHeader: 16,
+            dataRow: 14,
+            totalsRow: 15,
         };
 
-        // Starting position
+        // === Dynamic width logic ===
+        const usableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+        const subClientCount = Math.max(dailyReport.subClient.length, 2);
+        const totalCols = 1 + 2 + (5 * subClientCount) + 4;
+        const colWidth = usableWidth / totalCols;
+
+        const colWidths = {
+            date: colWidth,
+            mainExport: colWidth,
+            mainImport: colWidth,
+            subExport: colWidth,
+            subData: colWidth,
+            subLoss: colWidth,
+            subPercent: colWidth,
+            subImport: colWidth,
+            acLine: colWidth,
+        };
+
+        const totalWidth = colWidth * totalCols;
+        const startX = doc.page.margins.left;
+
         let currentY = 20;
 
-        // ====================
-        // TITLE ROW
-        // ====================
-        const titleText = `${dailyReport.mainClient.mainClientDetail.name} - ${(dailyReport.mainClient.mainClientDetail.acCapacityKw / 1000).toFixed(2)} MW AC Generation Details`;
-        
-        // Calculate total width based on number of sub-clients
-        const subClientCount = Math.max(dailyReport.subClient.length, 2); // Minimum 2 sub-clients
-        const subClientCols = subClientCount * 5;
-        const totalWidth = colWidths.date + colWidths.mainExport + colWidths.mainImport + 
-                          (subClientCols * colWidths.subExport) + (4 * colWidths.acLine);
+        // Render title
+        doc.lineWidth(0.5)
+            .rect(startX, currentY, totalWidth, rowHeights.title)
+            .fillAndStroke(colors.titleBg, colors.borderColor);
 
-        // Title background
-        doc.rect(15, currentY, totalWidth, rowHeights.title)
-            .fill(colors.titleBg)
-            .stroke(colors.borderColor);
-
-        // Title text
         doc.font(titleFont)
             .fontSize(titleFontSize)
             .fillColor(colors.blackText)
-            .text(titleText, 15, currentY + 7, {
-                width: totalWidth,
-                align: 'center'
-            });
+            .text(
+                `${dailyReport.mainClient.mainClientDetail.name} - ${(dailyReport.mainClient.mainClientDetail.acCapacityKw / 1000).toFixed(2)} MW AC Generation Details`,
+                startX,
+                currentY + 7,
+                { width: totalWidth, align: "center" }
+            );
 
         currentY += rowHeights.title;
 
@@ -1503,14 +1490,14 @@ exports.downloadDailyReportPDF = async (req, res) => {
         const dateRange = `01-${String(dailyReport.month).padStart(2, '0')}-${dailyReport.year} to ${lastDay}-${String(dailyReport.month).padStart(2, '0')}-${dailyReport.year}`;
 
         // Calculate widths for month and date range sections
-        const monthWidth = colWidths.date + colWidths.mainExport + colWidths.mainImport + 
-                          (5 * colWidths.subExport); // Width for one sub-client section
+        const monthWidth = colWidths.date + colWidths.mainExport + colWidths.mainImport +
+            (5 * colWidths.subExport); // Width for one sub-client section
         const dateRangeWidth = totalWidth - monthWidth;
 
         // Month cell
         doc.rect(15, currentY, monthWidth, rowHeights.monthDate)
-            .fill(colors.monthBg)
-            .stroke(colors.borderColor);
+            .lineWidth(0.5)
+            .fillAndStroke(colors.monthBg, colors.borderColor)
 
         doc.font(headerFont)
             .fontSize(14)
@@ -1522,8 +1509,8 @@ exports.downloadDailyReportPDF = async (req, res) => {
 
         // Date range cell
         doc.rect(15 + monthWidth, currentY, dateRangeWidth, rowHeights.monthDate)
-            .fill(colors.monthBg)
-            .stroke(colors.borderColor);
+            .lineWidth(0.5)
+            .fillAndStroke(colors.monthBg, colors.borderColor);
 
         doc.font(headerFont)
             .fontSize(14)
@@ -1540,26 +1527,26 @@ exports.downloadDailyReportPDF = async (req, res) => {
         // ====================
         // NAME=> cell
         doc.rect(15, currentY, colWidths.date, rowHeights.clientHeader)
-            .fill(colors.grayBg)
-            .stroke(colors.borderColor);
+            .lineWidth(0.5)
+            .fillAndStroke(colors.grayBg, colors.borderColor);
 
         doc.font(headerFont)
             .fontSize(headerFontSize)
             .fillColor(colors.blackText)
-            .text('NAME=>', 15, currentY + 15, {
+            .text('NAME=>', 15, currentY + 12, {
                 width: colWidths.date,
                 align: 'center'
             });
 
         // TOTAL-GETCO SS cell (merged)
         doc.rect(15 + colWidths.date, currentY, colWidths.mainExport + colWidths.mainImport, rowHeights.clientHeader)
-            .fill(colors.mainClientBg)
-            .stroke(colors.borderColor);
+            .lineWidth(0.5)
+            .fillAndStroke(colors.mainClientBg, colors.borderColor);
 
         doc.font(headerFont)
             .fontSize(headerFontSize)
             .fillColor(colors.blackText)
-            .text('TOTAL-GETCO\nSS', 15 + colWidths.date, currentY + 10, {
+            .text('TOTAL-GETCO\nSS', 15 + colWidths.date, currentY + 7, {
                 width: colWidths.mainExport + colWidths.mainImport,
                 align: 'center',
                 lineGap: 3
@@ -1571,25 +1558,25 @@ exports.downloadDailyReportPDF = async (req, res) => {
             const color = index % 2 === 0 ? colors.subClient1Bg : colors.subClient2Bg;
 
             doc.rect(startX, currentY, 5 * colWidths.subExport, rowHeights.clientHeader)
-                .fill(color)
-                .stroke(colors.borderColor);
+                .lineWidth(0.5)
+                .fillAndStroke(color, colors.borderColor);
 
             doc.font(headerFont)
                 .fontSize(headerFontSize)
                 .fillColor(colors.blackText)
-                .text(subClient.name, startX, currentY + 15, {
+                .text(subClient.name, startX, currentY + 12, {
                     width: 5 * colWidths.subExport,
                     align: 'center'
                 });
         });
 
         // AC LINE LOSS DIFF header (merged with next row)
-        const acLineStartX = 15 + colWidths.date + colWidths.mainExport + colWidths.mainImport + 
-                           (dailyReport.subClient.length * 5 * colWidths.subExport);
-        
+        const acLineStartX = 15 + colWidths.date + colWidths.mainExport + colWidths.mainImport +
+            (dailyReport.subClient.length * 5 * colWidths.subExport);
+
         doc.rect(acLineStartX, currentY, 4 * colWidths.acLine, rowHeights.clientHeader * 2)
-            .fill(colors.acLineBg)
-            .stroke(colors.borderColor);
+            .lineWidth(0.5)
+            .fillAndStroke(colors.acLineBg, colors.borderColor);
 
         doc.font(headerFont)
             .fontSize(headerFontSize)
@@ -1606,26 +1593,30 @@ exports.downloadDailyReportPDF = async (req, res) => {
         // ====================
         // METER NO.=> cell
         doc.rect(15, currentY, colWidths.date, rowHeights.meterHeader)
-            .fill(colors.grayBg)
-            .stroke(colors.borderColor);
+            .lineWidth(0.5)
+            .fillAndStroke(colors.grayBg, colors.borderColor);
+
+        const cellHeight = rowHeights.meterHeader;      // height of the current row
+        const fontSize = headerFontSize;                // font size used for this text
+        const yOffset = currentY + (cellHeight - fontSize) / 2;
 
         doc.font(headerFont)
             .fontSize(headerFontSize)
             .fillColor(colors.blackText)
-            .text('METER NO.=>', 15, currentY + 15, {
+            .text('METER NO.=>', 15, yOffset - 3, {
                 width: colWidths.date,
                 align: 'center'
             });
 
         // Main client meter number (merged)
         doc.rect(15 + colWidths.date, currentY, colWidths.mainExport + colWidths.mainImport, rowHeights.meterHeader)
-            .fill(colors.mainClientBg)
-            .stroke(colors.borderColor);
+            .lineWidth(0.5)
+            .fillAndStroke(colors.mainClientBg, colors.borderColor);
 
         doc.font(headerFont)
             .fontSize(headerFontSize)
             .fillColor(colors.blackText)
-            .text(dailyReport.mainClient.meterNumber, 15 + colWidths.date, currentY + 15, {
+            .text(dailyReport.mainClient.meterNumber, 15 + colWidths.date, currentY + 10, {
                 width: colWidths.mainExport + colWidths.mainImport,
                 align: 'center'
             });
@@ -1636,13 +1627,13 @@ exports.downloadDailyReportPDF = async (req, res) => {
             const color = index % 2 === 0 ? colors.subClient1Bg : colors.subClient2Bg;
 
             doc.rect(startX, currentY, 5 * colWidths.subExport, rowHeights.meterHeader)
-                .fill(color)
-                .stroke(colors.borderColor);
+                .lineWidth(0.5)
+                .fillAndStroke(color, colors.borderColor);
 
             doc.font(headerFont)
                 .fontSize(headerFontSize)
                 .fillColor(colors.blackText)
-                .text(subClient.meterNumber, startX, currentY + 15, {
+                .text(subClient.meterNumber, startX, currentY + 10, {
                     width: 5 * colWidths.subExport,
                     align: 'center'
                 });
@@ -1655,8 +1646,8 @@ exports.downloadDailyReportPDF = async (req, res) => {
         // ====================
         // DATE header
         doc.rect(15, currentY, colWidths.date, rowHeights.dataHeader)
-            .fill(colors.grayBg)
-            .stroke(colors.borderColor);
+            .lineWidth(0.5)
+            .fillAndStroke(colors.grayBg, colors.borderColor);
 
         doc.font(headerFont)
             .fontSize(headerFontSize)
@@ -1668,8 +1659,8 @@ exports.downloadDailyReportPDF = async (req, res) => {
 
         // Main client headers
         doc.rect(15 + colWidths.date, currentY, colWidths.mainExport, rowHeights.dataHeader)
-            .fill(colors.mainClientBg)
-            .stroke(colors.borderColor);
+            .lineWidth(0.5)
+            .fillAndStroke(colors.mainClientBg, colors.borderColor);
 
         doc.font(headerFont)
             .fontSize(headerFontSize)
@@ -1680,8 +1671,8 @@ exports.downloadDailyReportPDF = async (req, res) => {
             });
 
         doc.rect(15 + colWidths.date + colWidths.mainExport, currentY, colWidths.mainImport, rowHeights.dataHeader)
-            .fill(colors.mainClientBg)
-            .stroke(colors.borderColor);
+            .lineWidth(0.5)
+            .fillAndStroke(colors.mainClientBg, colors.borderColor);
 
         doc.font(headerFont)
             .fontSize(headerFontSize)
@@ -1700,8 +1691,8 @@ exports.downloadDailyReportPDF = async (req, res) => {
 
             headers.forEach((header, i) => {
                 doc.rect(startX + (i * colWidths.subExport), currentY, colWidths.subExport, rowHeights.dataHeader)
-                    .fill(color)
-                    .stroke(colors.borderColor);
+                    .lineWidth(0.5)
+                    .fillAndStroke(color, colors.borderColor);
 
                 doc.font(headerFont)
                     .fontSize(headerFontSize)
@@ -1717,8 +1708,8 @@ exports.downloadDailyReportPDF = async (req, res) => {
         const acLineHeaders = ['Export', 'Loss in%', 'Import', 'Loss in%'];
         acLineHeaders.forEach((header, i) => {
             doc.rect(acLineStartX + (i * colWidths.acLine), currentY, colWidths.acLine, rowHeights.dataHeader)
-                .fill(colors.acLineBg)
-                .stroke(colors.borderColor);
+                .lineWidth(0.5)
+                .fillAndStroke(colors.acLineBg, colors.borderColor);
 
             doc.font(headerFont)
                 .fontSize(headerFontSize)
@@ -1734,6 +1725,8 @@ exports.downloadDailyReportPDF = async (req, res) => {
         // ====================
         // DATA ROWS
         // ====================
+
+
         dailyReport.mainClient.loggerdatas.forEach(dayData => {
             // Check if we need a new page
             if (currentY + rowHeights.dataRow > doc.page.height - 20) {
@@ -1744,43 +1737,45 @@ exports.downloadDailyReportPDF = async (req, res) => {
                 });
                 currentY = 20;
             }
-
+            const cellHeight = rowHeights.dataRow;
+            const fontSize = dataFontSize;
+            const yCentered = (currentY + (cellHeight - fontSize) / 2) + 2;
             // Date cell
             doc.rect(15, currentY, colWidths.date, rowHeights.dataRow)
-                .fill(colors.grayBg)
-                .stroke(colors.borderColor);
+                .lineWidth(0.5)
+                .fillAndStroke(colors.grayBg, colors.borderColor);
 
             doc.font(dataFont)
                 .fontSize(dataFontSize)
                 .fillColor(colors.blackText)
-                .text(dayData.date, 15, currentY + 7, {
+                .text(dayData.date, 15, yCentered, {
                     width: colWidths.date,
                     align: 'center'
                 });
 
             // Main client data
             doc.rect(15 + colWidths.date, currentY, colWidths.mainExport, rowHeights.dataRow)
-                .fill(colors.mainClientBg)
-                .stroke(colors.borderColor);
+                .lineWidth(0.5)
+                .fillAndStroke(colors.mainClientBg, colors.borderColor);
 
             doc.font(dataFont)
                 .fontSize(dataFontSize)
                 .fillColor(colors.blackText)
-                .text(typeof dayData.export === 'number' ? dayData.export.toFixed(1) : dayData.export, 
-                      15 + colWidths.date, currentY + 7, {
+                .text(typeof dayData.export === 'number' ? dayData.export.toFixed(1) : dayData.export,
+                    15 + colWidths.date, yCentered, {
                     width: colWidths.mainExport,
                     align: 'center'
                 });
 
             doc.rect(15 + colWidths.date + colWidths.mainExport, currentY, colWidths.mainImport, rowHeights.dataRow)
-                .fill(colors.mainClientBg)
-                .stroke(colors.borderColor);
+                .lineWidth(0.5)
+                .fillAndStroke(colors.mainClientBg, colors.borderColor);
 
             doc.font(dataFont)
                 .fontSize(dataFontSize)
                 .fillColor(colors.blackText)
-                .text(typeof dayData.import === 'number' ? dayData.import.toFixed(1) : dayData.import, 
-                      15 + colWidths.date + colWidths.mainExport, currentY + 7, {
+                .text(typeof dayData.import === 'number' ? dayData.import.toFixed(1) : dayData.import,
+                    15 + colWidths.date + colWidths.mainExport, yCentered, {
                     width: colWidths.mainImport,
                     align: 'center'
                 });
@@ -1790,46 +1785,47 @@ exports.downloadDailyReportPDF = async (req, res) => {
                 const subDayData = subClient.loggerdatas.find(d => d.date === dayData.date);
                 const startX = 15 + colWidths.date + colWidths.mainExport + colWidths.mainImport + (index * 5 * colWidths.subExport);
                 const color = index % 2 === 0 ? colors.subClient1Bg : colors.subClient2Bg;
+                const yCentered = (currentY + (rowHeights.dataRow - dataFontSize) / 2) + 2;
 
                 if (subDayData) {
                     // Export
                     doc.rect(startX, currentY, colWidths.subExport, rowHeights.dataRow)
-                        .fill(color)
-                        .stroke(colors.borderColor);
+                        .lineWidth(0.5)
+                        .fillAndStroke(color, colors.borderColor);
 
                     doc.font(dataFont)
                         .fontSize(dataFontSize)
                         .fillColor(colors.blackText)
-                        .text(typeof subDayData.export === 'number' ? subDayData.export.toFixed(1) : subDayData.export, 
-                              startX, currentY + 7, {
+                        .text(typeof subDayData.export === 'number' ? subDayData.export.toFixed(1) : subDayData.export,
+                            startX, yCentered, {
                             width: colWidths.subExport,
                             align: 'center'
                         });
 
                     // Logger Data
                     doc.rect(startX + colWidths.subExport, currentY, colWidths.subExport, rowHeights.dataRow)
-                        .fill(color)
-                        .stroke(colors.borderColor);
+                        .lineWidth(0.5)
+                        .fillAndStroke(color, colors.borderColor);
 
                     doc.font(dataFont)
                         .fontSize(dataFontSize)
                         .fillColor(colors.blackText)
-                        .text(typeof subDayData.loggerdata === 'number' ? subDayData.loggerdata.toFixed(1) : subDayData.loggerdata, 
-                              startX + colWidths.subExport, currentY + 7, {
+                        .text(typeof subDayData.loggerdata === 'number' ? subDayData.loggerdata.toFixed(1) : subDayData.loggerdata,
+                            startX + colWidths.subExport, yCentered, {
                             width: colWidths.subExport,
                             align: 'center'
                         });
 
                     // Internal Loss (red if negative)
                     doc.rect(startX + (2 * colWidths.subExport), currentY, colWidths.subExport, rowHeights.dataRow)
-                        .fill(color)
-                        .stroke(colors.borderColor);
+                        .lineWidth(0.5)
+                        .fillAndStroke(color, colors.borderColor);
 
                     const internalLoss = typeof subDayData.internallosse === 'number' ? subDayData.internallosse.toFixed(1) : subDayData.internallosse;
                     doc.font(dataFont)
                         .fontSize(dataFontSize)
                         .fillColor(subDayData.internallosse < 0 ? colors.redText : colors.blackText)
-                        .text(internalLoss, startX + (2 * colWidths.subExport), currentY + 7, {
+                        .text(internalLoss, startX + (2 * colWidths.subExport), yCentered, {
                             width: colWidths.subExport,
                             align: 'center'
                         });
@@ -1837,29 +1833,29 @@ exports.downloadDailyReportPDF = async (req, res) => {
                     // Loss in% (red if negative, with special background)
                     const lossPercent = typeof subDayData.lossinparsantege === 'number' ? subDayData.lossinparsantege.toFixed(1) + '%' : subDayData.lossinparsantege;
                     const lossBgColor = subDayData.lossinparsantege < 0 ? colors.negativeLossBg : color;
-                    
+
                     doc.rect(startX + (3 * colWidths.subExport), currentY, colWidths.subExport, rowHeights.dataRow)
-                        .fill(lossBgColor)
-                        .stroke(colors.borderColor);
+                        .lineWidth(0.5)
+                        .fillAndStroke(lossBgColor, colors.borderColor);
 
                     doc.font(dataFont)
                         .fontSize(dataFontSize)
                         .fillColor(subDayData.lossinparsantege < 0 ? colors.redText : colors.blackText)
-                        .text(lossPercent, startX + (3 * colWidths.subExport), currentY + 7, {
+                        .text(lossPercent, startX + (3 * colWidths.subExport), yCentered, {
                             width: colWidths.subExport,
                             align: 'center'
                         });
 
                     // Import
                     doc.rect(startX + (4 * colWidths.subExport), currentY, colWidths.subExport, rowHeights.dataRow)
-                        .fill(color)
-                        .stroke(colors.borderColor);
+                        .lineWidth(0.5)
+                        .fillAndStroke(color, colors.borderColor);
 
                     doc.font(dataFont)
                         .fontSize(dataFontSize)
                         .fillColor(colors.blackText)
-                        .text(typeof subDayData.import === 'number' ? subDayData.import.toFixed(1) : subDayData.import, 
-                              startX + (4 * colWidths.subExport), currentY + 7, {
+                        .text(typeof subDayData.import === 'number' ? subDayData.import.toFixed(1) : subDayData.import,
+                            startX + (4 * colWidths.subExport), yCentered, {
                             width: colWidths.subExport,
                             align: 'center'
                         });
@@ -1880,18 +1876,19 @@ exports.downloadDailyReportPDF = async (req, res) => {
                     const formattedValue = typeof item.value === 'number' ?
                         (item.isLossPercent ? `${item.value.toFixed(1)}%` : item.value.toFixed(1)) :
                         item.value;
-                    
+
                     const bgColor = item.value < 0 ? colors.acLineBg : colors.whiteBg;
                     const textColor = item.value < 0 ? colors.redText : colors.blackText;
+                    const yCentered = (currentY + (rowHeights.dataRow - dataFontSize) / 2) + 2;
 
                     doc.rect(acLineStartX + (i * colWidths.acLine), currentY, colWidths.acLine, rowHeights.dataRow)
-                        .fill(bgColor)
-                        .stroke(colors.borderColor);
+                        .lineWidth(0.5)
+                        .fillAndStroke(bgColor, colors.borderColor);
 
                     doc.font(dataFont)
                         .fontSize(dataFontSize)
                         .fillColor(textColor)
-                        .text(formattedValue, acLineStartX + (i * colWidths.acLine), currentY + 7, {
+                        .text(formattedValue, acLineStartX + (i * colWidths.acLine), yCentered, {
                             width: colWidths.acLine,
                             align: 'center'
                         });
@@ -1913,43 +1910,43 @@ exports.downloadDailyReportPDF = async (req, res) => {
             });
             currentY = 20;
         }
-
+        const yCentered = (currentY + (rowHeights.dataRow - dataFontSize) / 2) + 2;
         // Label
         doc.rect(15, currentY, colWidths.date, rowHeights.totalsRow)
-            .fill(colors.grayBg)
-            .stroke(colors.borderColor);
+            .lineWidth(0.5)
+            .fillAndStroke(colors.grayBg, colors.borderColor);
 
         doc.font(headerFont)
             .fontSize(headerFontSize)
             .fillColor(colors.blackText)
-            .text('Total', 15, currentY + 7, {
+            .text('Total', 15, yCentered, {
                 width: colWidths.date,
                 align: 'center'
             });
 
         // Main client totals
         doc.rect(15 + colWidths.date, currentY, colWidths.mainExport, rowHeights.totalsRow)
-            .fill(colors.mainClientBg)
-            .stroke(colors.borderColor);
+            .lineWidth(0.5)
+            .fillAndStroke(colors.mainClientBg, colors.borderColor);
 
         doc.font(headerFont)
             .fontSize(headerFontSize)
             .fillColor(colors.blackText)
-            .text(typeof dailyReport.mainClient.totalexport === 'number' ? dailyReport.mainClient.totalexport.toFixed(1) : dailyReport.mainClient.totalexport, 
-                  15 + colWidths.date, currentY + 7, {
+            .text(typeof dailyReport.mainClient.totalexport === 'number' ? dailyReport.mainClient.totalexport.toFixed(1) : dailyReport.mainClient.totalexport,
+                15 + colWidths.date, yCentered, {
                 width: colWidths.mainExport,
                 align: 'center'
             });
 
         doc.rect(15 + colWidths.date + colWidths.mainExport, currentY, colWidths.mainImport, rowHeights.totalsRow)
-            .fill(colors.mainClientBg)
-            .stroke(colors.borderColor);
+            .lineWidth(0.5)
+            .fillAndStroke(colors.mainClientBg, colors.borderColor);
 
         doc.font(headerFont)
             .fontSize(headerFontSize)
             .fillColor(colors.blackText)
-            .text(typeof dailyReport.mainClient.totalimport === 'number' ? dailyReport.mainClient.totalimport.toFixed(1) : dailyReport.mainClient.totalimport, 
-                  15 + colWidths.date + colWidths.mainExport, currentY + 7, {
+            .text(typeof dailyReport.mainClient.totalimport === 'number' ? dailyReport.mainClient.totalimport.toFixed(1) : dailyReport.mainClient.totalimport,
+                15 + colWidths.date + colWidths.mainExport, yCentered, {
                 width: colWidths.mainImport,
                 align: 'center'
             });
@@ -1961,42 +1958,42 @@ exports.downloadDailyReportPDF = async (req, res) => {
 
             // Export total
             doc.rect(startX, currentY, colWidths.subExport, rowHeights.totalsRow)
-                .fill(color)
-                .stroke(colors.borderColor);
+                .lineWidth(0.5)
+                .fillAndStroke(color, colors.borderColor)
 
             doc.font(headerFont)
                 .fontSize(headerFontSize)
                 .fillColor(colors.blackText)
-                .text(typeof subClient.totalexport === 'number' ? subClient.totalexport.toFixed(1) : subClient.totalexport, 
-                      startX, currentY + 7, {
+                .text(typeof subClient.totalexport === 'number' ? subClient.totalexport.toFixed(1) : subClient.totalexport,
+                    startX, yCentered, {
                     width: colWidths.subExport,
                     align: 'center'
                 });
 
             // Logger Data total
             doc.rect(startX + colWidths.subExport, currentY, colWidths.subExport, rowHeights.totalsRow)
-                .fill(color)
-                .stroke(colors.borderColor);
+                .lineWidth(0.5)
+                .fillAndStroke(color, colors.borderColor);
 
             doc.font(headerFont)
                 .fontSize(headerFontSize)
                 .fillColor(colors.blackText)
-                .text(typeof subClient.totalloggerdata === 'number' ? subClient.totalloggerdata.toFixed(1) : subClient.totalloggerdata, 
-                      startX + colWidths.subExport, currentY + 7, {
+                .text(typeof subClient.totalloggerdata === 'number' ? subClient.totalloggerdata.toFixed(1) : subClient.totalloggerdata,
+                    startX + colWidths.subExport, yCentered, {
                     width: colWidths.subExport,
                     align: 'center'
                 });
 
             // Internal Loss total (red if negative)
             doc.rect(startX + (2 * colWidths.subExport), currentY, colWidths.subExport, rowHeights.totalsRow)
-                .fill(color)
-                .stroke(colors.borderColor);
+                .lineWidth(0.5)
+                .fillAndStroke(color, colors.borderColor);
 
             const internalLoss = typeof subClient.totalinternallosse === 'number' ? subClient.totalinternallosse.toFixed(1) : subClient.totalinternallosse;
             doc.font(headerFont)
                 .fontSize(headerFontSize)
                 .fillColor(subClient.totalinternallosse < 0 ? colors.redText : colors.blackText)
-                .text(internalLoss, startX + (2 * colWidths.subExport), currentY + 7, {
+                .text(internalLoss, startX + (2 * colWidths.subExport), yCentered, {
                     width: colWidths.subExport,
                     align: 'center'
                 });
@@ -2004,29 +2001,29 @@ exports.downloadDailyReportPDF = async (req, res) => {
             // Loss in% total (red if negative, with special background)
             const lossPercent = typeof subClient.totallossinparsantege === 'number' ? subClient.totallossinparsantege.toFixed(1) + '%' : subClient.totallossinparsantege;
             const lossBgColor = subClient.totallossinparsantege < 0 ? colors.negativeLossBg : color;
-            
+
             doc.rect(startX + (3 * colWidths.subExport), currentY, colWidths.subExport, rowHeights.totalsRow)
-                .fill(lossBgColor)
-                .stroke(colors.borderColor);
+                .lineWidth(0.5)
+                .fillAndStroke(lossBgColor, colors.borderColor);
 
             doc.font(headerFont)
                 .fontSize(headerFontSize)
                 .fillColor(subClient.totallossinparsantege < 0 ? colors.redText : colors.blackText)
-                .text(lossPercent, startX + (3 * colWidths.subExport), currentY + 7, {
+                .text(lossPercent, startX + (3 * colWidths.subExport), yCentered, {
                     width: colWidths.subExport,
                     align: 'center'
                 });
 
             // Import total
             doc.rect(startX + (4 * colWidths.subExport), currentY, colWidths.subExport, rowHeights.totalsRow)
-                .fill(color)
-                .stroke(colors.borderColor);
+                .lineWidth(0.5)
+                .fillAndStroke(color, colors.borderColor);
 
             doc.font(headerFont)
                 .fontSize(headerFontSize)
                 .fillColor(colors.blackText)
-                .text(typeof subClient.totalimport === 'number' ? subClient.totalimport.toFixed(1) : subClient.totalimport, 
-                      startX + (4 * colWidths.subExport), currentY + 7, {
+                .text(typeof subClient.totalimport === 'number' ? subClient.totalimport.toFixed(1) : subClient.totalimport,
+                    startX + (4 * colWidths.subExport), yCentered, {
                     width: colWidths.subExport,
                     align: 'center'
                 });
@@ -2044,34 +2041,34 @@ exports.downloadDailyReportPDF = async (req, res) => {
             const formattedValue = typeof item.value === 'number' ?
                 (item.isLossPercent ? `${item.value.toFixed(1)}%` : item.value.toFixed(1)) :
                 item.value;
-            
+
             const bgColor = item.value < 0 ? colors.acLineBg : colors.whiteBg;
             const textColor = item.value < 0 ? colors.redText : colors.blackText;
 
             doc.rect(acLineStartX + (i * colWidths.acLine), currentY, colWidths.acLine, rowHeights.totalsRow)
-                .fill(bgColor)
-                .stroke(colors.borderColor);
+                .lineWidth(0.5)
+                .fillAndStroke(bgColor, colors.borderColor);
 
             doc.font(headerFont)
                 .fontSize(headerFontSize)
                 .fillColor(textColor)
-                .text(formattedValue, acLineStartX + (i * colWidths.acLine), currentY + 7, {
+                .text(formattedValue, acLineStartX + (i * colWidths.acLine), yCentered, {
                     width: colWidths.acLine,
                     align: 'center'
                 });
         });
 
-        // Finalize the PDF
+        // Finalize
         doc.end();
-
     } catch (error) {
         logger.error(`Error generating Daily Report PDF: ${error.message}`);
         res.status(500).json({
-            message: 'Error generating Daily Report PDF',
-            error: error.message
+            message: "Error generating Daily Report PDF",
+            error: error.message,
         });
     }
 };
+
 
 // Helper function to get month name
 function getMonthName(month) {
