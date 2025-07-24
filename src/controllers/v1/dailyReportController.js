@@ -1442,7 +1442,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
             clientHeader: 28,
             meterHeader: 22,
             dataHeader: subClientCount > 2 ? 24 : 16,
-            dataRow: 14,
+            dataRow: 13.5,
             totalsRow: 15,
         };
 
