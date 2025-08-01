@@ -9,6 +9,8 @@ const moment = require('moment');
 const LossesCalculationData = require('../../models/v1/lossesCalculation.model');
 const DailyReport = require('../../models/v1/dailyReport.model');
 const TotalReport = require('../../models/v1/totalReport.model');
+const { reencodeCSVtoUTF8 } = require('../../utils/reencodeCSV');
+const { prepareCSVStream } = require('../../utils/prepareCSVStream');
 
 // Helper function: Extract Meter Number
 const extractMeterNumber = (fileName) => {
@@ -45,6 +47,163 @@ const findClientByMeterNumber = async (meterNumber) => {
     return null;
 };
 
+
+
+// Controller method to upload and process meter CSV files
+
+//old version of uploadMeterCSV
+// exports.uploadMeterCSV = async (req, res) => {
+//     try {
+//         const { month, year } = req.body;
+//         const files = req.files;
+
+//         if (!files || files.length === 0) {
+//             return res.status(400).json({ message: "No files uploaded." });
+//         }
+
+//         const successfulFiles = [];
+//         const invalidFiles = [];
+
+//         for (const file of files) {
+//             const filePath = path.resolve(file.path);
+//             const meterNumber = extractMeterNumber(file.originalname);
+
+//             if (!meterNumber) {
+//                 fs.unlinkSync(filePath);  // Delete invalid file immediately
+//                 invalidFiles.push({
+//                     fileName: file.originalname,
+//                     reason: "Invalid file name format - could not extract meter number"
+//                 });
+//                 continue;
+//             }
+
+//             const clientData = await findClientByMeterNumber(meterNumber);
+//             if (!clientData) {
+//                 fs.unlinkSync(filePath);  // Delete invalid file immediately
+//                 invalidFiles.push({
+//                     fileName: file.originalname,
+//                     reason: `Client data not found for meter number ${meterNumber}`
+//                 });
+//                 continue;
+//             }
+
+//             const existingData = await MeterData.findOne({ meterNumber, month, year });
+//             if (existingData) {
+//                 fs.unlinkSync(filePath);  // Delete invalid file immediately
+//                 invalidFiles.push({
+//                     fileName: file.originalname,
+//                     reason: `Data already exists for meter ${meterNumber} for ${month}/${year}`
+//                 });
+//                 continue;
+//             }
+
+//             const startDate = moment(`${year}-${month}-01`, "YYYY-MM-DD");
+//             const endDate = startDate.clone().add(1, 'month');
+
+//             const dataEntries = [];
+//             let lineNumber = 0;
+
+//             try {
+//                 await new Promise((resolve, reject) => {
+//                     fs.createReadStream(filePath)
+//                         .pipe(csv({ skipLines: 7 }))
+//                         .on('data', (data) => {
+//                             lineNumber++;
+//                             if (lineNumber === 1 && !data.Date) return;  // Skip any extra header lines
+
+//                             const entryDate = moment(data['Date'], "DD/MM/YYYY");
+//                             if (entryDate.isValid() && entryDate.isSameOrAfter(startDate) && entryDate.isBefore(endDate)) {
+//                                 dataEntries.push({
+//                                     date: entryDate.toDate(),
+//                                     intervalStart: data['Interval Start'],
+//                                     intervalEnd: data['Interval End'],
+//                                     parameters: data
+//                                 });
+//                             }
+//                         })
+//                         .on('end', () => {
+//                             fs.unlinkSync(filePath); // Delete processed file
+//                             resolve();
+//                         })
+//                         .on('error', (error) => {
+//                             fs.unlinkSync(filePath); // Delete invalid file immediately
+//                             logger.error(`CSV parse error in file ${file.originalname}: ${error.message}`);
+//                             reject(error);
+//                         });
+//                 });
+
+//                 if (dataEntries.length > 0) {
+//                     const meterData = new MeterData({
+//                         meterNumber,
+//                         clientType: clientData.clientType,
+//                         meterType: clientData.meterType,
+//                         client: clientData.client._id,
+//                         month,
+//                         year,
+//                         dataEntries
+//                     });
+
+//                     await meterData.save();
+//                     successfulFiles.push({
+//                         fileName: file.originalname,
+//                         meterNumber,
+//                         message: `Successfully processed ${dataEntries.length} records`,
+//                         meterDataId: meterData._id
+//                     });
+//                     logger.info(`CSV data for ${meterNumber} uploaded successfully for ${month}/${year}.`);
+//                 } else {
+//                     invalidFiles.push({
+//                         fileName: file.originalname,
+//                         reason: "No valid data entries found within the specified month/year"
+//                     });
+//                 }
+//             } catch (error) {
+//                 invalidFiles.push({
+//                     fileName: file.originalname,
+//                     reason: `CSV processing error: ${error.message}`
+//                 });
+//                 continue;
+//             }
+//         }
+
+//         const response = {
+//             message: "File processing completed",
+//             summary: {
+//                 totalFiles: files.length,
+//                 successful: successfulFiles.length,
+//                 failed: invalidFiles.length
+//             },
+//             successfulFiles: successfulFiles.map(f => ({
+//                 fileName: f.fileName,
+//                 meterNumber: f.meterNumber,
+//                 message: f.message
+//             })),
+//             invalidFiles: invalidFiles.map(f => ({
+//                 fileName: f.fileName,
+//                 reason: f.reason
+//             }))
+//         };
+
+//         if (successfulFiles.length === 0 && invalidFiles.length > 0) {
+//             return res.status(400).json(response);
+//         }
+
+//         if (invalidFiles.length > 0) {
+//             response.message = "Some files were not processed successfully";
+//             return res.status(207).json(response); // 207 Multi-Status
+//         }
+
+//         res.status(201).json(response);
+//     } catch (error) {
+//         logger.error(`Error uploading CSV files: ${error.message}`);
+//         res.status(500).json({
+//             message: "Internal server error",
+//             error: error.message
+//         });
+//     }
+// };
+
+// New version of uploadMeterCSV
 exports.uploadMeterCSV = async (req, res) => {
     try {
         const { month, year } = req.body;
@@ -59,6 +218,7 @@ exports.uploadMeterCSV = async (req, res) => {
 
         for (const file of files) {
             const filePath = path.resolve(file.path);
+            await reencodeCSVtoUTF8(filePath);
             const meterNumber = extractMeterNumber(file.originalname);
 
             if (!meterNumber) {
@@ -98,30 +258,42 @@ exports.uploadMeterCSV = async (req, res) => {
 
             try {
                 await new Promise((resolve, reject) => {
-                    fs.createReadStream(filePath)
-                        .pipe(csv({ skipLines: 7 }))
-                        .on('data', (data) => {
-                            lineNumber++;
-                            if (lineNumber === 1 && !data.Date) return;  // Skip any extra header lines
+                    prepareCSVStream(filePath, (line) => {
+                        const l = line.toLowerCase();
+                        return l.includes('date') && l.includes('interval start');
+                    })
+                        .then((stream) => {
+                            stream
+                                .pipe(csv({ mapHeaders: ({ header }) => header.trim() }))
+                                .on('data', (data) => {
+                                    lineNumber++;
 
-                            const entryDate = moment(data['Date'], "DD/MM/YYYY");
-                            if (entryDate.isValid() && entryDate.isSameOrAfter(startDate) && entryDate.isBefore(endDate)) {
-                                dataEntries.push({
-                                    date: entryDate.toDate(),
-                                    intervalStart: data['Interval Start'],
-                                    intervalEnd: data['Interval End'],
-                                    parameters: data
+                                    if (lineNumber === 1 && !data.Date) {
+                                        logger.warn(`'Date' field not found in first row of ${file.originalname}`);
+                                    }
+
+                                    const entryDate = moment(data['Date'], "DD/MM/YYYY");
+                                    if (entryDate.isValid() && entryDate.isSameOrAfter(startDate) && entryDate.isBefore(endDate)) {
+                                        dataEntries.push({
+                                            date: entryDate.toDate(),
+                                            intervalStart: data['Interval Start'],
+                                            intervalEnd: data['Interval End'],
+                                            parameters: data
+                                        });
+                                    }
+                                })
+                                .on('end', () => {
+                                    fs.unlinkSync(filePath); // delete original
+                                    resolve();
+                                })
+                                .on('error', (error) => {
+                                    fs.unlinkSync(filePath);
+                                    reject(error);
                                 });
-                            }
                         })
-                        .on('end', () => {
-                            fs.unlinkSync(filePath); // Delete processed file
-                            resolve();
-                        })
-                        .on('error', (error) => {
-                            fs.unlinkSync(filePath); // Delete invalid file immediately
-                            logger.error(`CSV parse error in file ${file.originalname}: ${error.message}`);
-                            reject(error);
+                        .catch((err) => {
+                            fs.unlinkSync(filePath);
+                            reject(err);
                         });
                 });
 
@@ -196,7 +368,6 @@ exports.uploadMeterCSV = async (req, res) => {
     }
 };
 
-
 // Controller method to show meter data based on month, year, and main client ID
 exports.showMeterData = async (req, res) => {
     try {
@@ -229,14 +400,14 @@ exports.showMeterData = async (req, res) => {
             month,
             year,
         })
-        .select('client meterNumber meterType month year') // Include necessary fields only
-        .populate({
-            path: 'client',
-            select: 'name', // Only select the name field of the client
-            model: 'MainClient',
-        })
-        .populate('meterType clientType')
-        .lean();
+            .select('client meterNumber meterType month year') // Include necessary fields only
+            .populate({
+                path: 'client',
+                select: 'name', // Only select the name field of the client
+                model: 'MainClient',
+            })
+            .populate('meterType clientType')
+            .lean();
 
         // Find meter data for all sub-clients for the given month and year
         const subClientMeterData = await MeterData.find({
@@ -244,14 +415,14 @@ exports.showMeterData = async (req, res) => {
             month,
             year,
         })
-        .select('client meterNumber meterType month year') // Include necessary fields only
-        .populate({
-            path: 'client',
-            select: 'name',
-            model: 'SubClient',
-        })
-        .populate('meterType clientType')
-        .lean();
+            .select('client meterNumber meterType month year') // Include necessary fields only
+            .populate({
+                path: 'client',
+                select: 'name',
+                model: 'SubClient',
+            })
+            .populate('meterType clientType')
+            .lean();
 
         // Combine the main client and sub-client meter data
         const allMeterData = [...mainClientMeterData, ...subClientMeterData];
@@ -267,7 +438,6 @@ exports.showMeterData = async (req, res) => {
         res.status(500).json({ message: "An error occurred while fetching the meter data." });
     }
 };
-
 
 // Controller method to delete meter data by ID
 exports.deleteMeterData = async (req, res) => {
