@@ -272,13 +272,18 @@ exports.uploadMeterCSV = async (req, res) => {
                                         logger.warn(`'Date' field not found in first row of ${file.originalname}`);
                                     }
 
-                                    const entryDate = moment(data['Date'], "DD/MM/YYYY");
+                                    const rawDate = data['Date'];
+                                    const entryDate = moment(rawDate, ['DD/MM/YYYY', 'DD-MM-YYYY'], true);
+
                                     if (entryDate.isValid() && entryDate.isSameOrAfter(startDate) && entryDate.isBefore(endDate)) {
                                         dataEntries.push({
                                             date: entryDate.toDate(),
                                             intervalStart: data['Interval Start'],
                                             intervalEnd: data['Interval End'],
-                                            parameters: data
+                                            parameters: {
+                                                ...data,
+                                                Date: entryDate.format('DD-MM-YYYY')
+                                            }
                                         });
                                     }
                                 })
