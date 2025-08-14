@@ -2720,6 +2720,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         const mainValue = mainEntry.grossInjectedUnitsTotal;
         mainCell.value = mainValue;
         mainCell.numFmt = '0.00000';
+        mainCell.font = { size: 10, name: 'Times New Roman' };
 
         // Highlight negative or zero values (original styling)
         if (mainValue <= 0) {
