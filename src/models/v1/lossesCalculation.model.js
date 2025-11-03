@@ -7,6 +7,15 @@ const lossesCalculationSchema = new mongoose.Schema({
   year: { type: Number, required: true },
   SLDCGROSSINJECTION: { type: Number },
   SLDCGROSSDRAWL: { type: Number },
+  
+  // DISCOM Values (optional)
+  DGVCL: { type: Number },
+  MGVCL: { type: Number },
+  PGVCL: { type: Number },
+  UGVCL: { type: Number },
+  TAECO: { type: Number },
+  TSECO: { type: Number },
+  TEL: { type: Number },
 
   // Main Client Meter Details
   mainClient: {
