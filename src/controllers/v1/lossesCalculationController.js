@@ -821,7 +821,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   summaryTitleCell.font = { bold: true, size: 16, name: "Times New Roman", color: { argb: "000000" } };
   summaryTitleCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
   summaryTitleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "b4c6e7" } };
-  summaryTitleCell.border = { top: { style: "medium" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "medium" } };
+  summaryTitleCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   summarySheet.mergeCells("C2:K2");
   const companyCellSummary = summarySheet.getCell("C2");
@@ -832,7 +832,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   companyCellSummary.font = { bold: true, size: 16, name: "Times New Roman", color: { argb: "000000" } };
   companyCellSummary.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
   companyCellSummary.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "b4c6e7" } };
-  companyCellSummary.border = { top: { style: "medium" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "medium" } };
+  companyCellSummary.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   // Row 3: Month
   const monthRow = summarySheet.getRow(3);
@@ -844,7 +844,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   monthLabelCell.font = { bold: true, size: 14, name: "Times New Roman", color: { argb: "FF0000" } };
   monthLabelCell.alignment = { horizontal: "center", vertical: "middle" };
   monthLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "b4c6e7" } };
-  monthLabelCell.border = { top: { style: "medium" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "medium" } };
+  monthLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   summarySheet.mergeCells("F3:K3");
   const monthValueCell = summarySheet.getCell("F3");
@@ -852,7 +852,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   monthValueCell.font = { bold: true, size: 18, name: "Times New Roman", color: { argb: "FF0000" } };
   monthValueCell.alignment = { horizontal: "center", vertical: "middle" };
   monthValueCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "b4c6e7" } };
-  monthValueCell.border = { top: { style: "medium" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "medium" } };
+  monthValueCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   // Row 4: Generation Period
   const periodRow = summarySheet.getRow(4);
@@ -864,7 +864,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   periodLabelCell.font = { bold: true, size: 14, name: "Times New Roman", color: { argb: "FF0000" } };
   periodLabelCell.alignment = { horizontal: "center", vertical: "middle" };
   periodLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "b4c6e7" } };
-  periodLabelCell.border = { top: { style: "medium" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "medium" } };
+  periodLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const periodEndColumn = "K";
   summarySheet.mergeCells(`F4:${periodEndColumn}4`);
@@ -875,7 +875,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   periodValueCell.font = { bold: true, size: 18, name: "Times New Roman", color: { argb: "FF0000" } };
   periodValueCell.alignment = { horizontal: "center", vertical: "middle" };
   periodValueCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "b4c6e7" } };
-  periodValueCell.border = { top: { style: "medium" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "medium" } };
+  periodValueCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   // Row 5: CPP header line
   const cppRow = summarySheet.getRow(5);
@@ -886,14 +886,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   cppCell.font = { bold: true, size: 12, name: "Times New Roman", color: { argb: "0000cc" } };
   cppCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
   cppCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "b4c6e7" } };
-  cppCell.border = { top: { style: "medium" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "medium" } };
+  cppCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   // K5 cell with "PANETHA"
   const panethaCell = summarySheet.getCell("K5");
   panethaCell.value = "PANETHA";
   panethaCell.font = { bold: true, size: 12, name: "Times New Roman", color: { argb: "0000cc" } };
   panethaCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-  panethaCell.border = { top: { style: "medium" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "medium" } };
+  panethaCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   panethaCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "b4c6e7" } };
 
   // Row 6: SLDC APPROVED strip
@@ -906,28 +906,28 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   sldcLabelCell.font = { bold: true, size: 10, name: "Times New Roman" };
   sldcLabelCell.alignment = { horizontal: "center", vertical: "middle" };
   sldcLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "92D050" } };
-  sldcLabelCell.border = { top: { style: "thin" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "thin" } };
+  sldcLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const totalLabelCell = summarySheet.getCell("C6");
   totalLabelCell.value = "Total (MWh)";
   totalLabelCell.font = { bold: true, size: 10, name: "Times New Roman" };
   totalLabelCell.alignment = { horizontal: "center", vertical: "middle" };
   totalLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "92D050" } };
-  totalLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "medium" }, right: { style: "thin" } };
+  totalLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const feederLabelCell = summarySheet.getCell("D6");
   feederLabelCell.value = "Feeder Name =>";
   feederLabelCell.font = { bold: true, size: 10, name: "Times New Roman" };
   feederLabelCell.alignment = { horizontal: "right", vertical: "middle", wrapText: true };
   feederLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  feederLabelCell.border = { top: { style: "medium" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "medium" } };
+  feederLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const mainClientCell = summarySheet.getCell("E6");
   mainClientCell.value = `(Lead Generator)\n${lossesCalculationData.mainClient.mainClientDetail.name.toUpperCase()}`;
   mainClientCell.font = { bold: true, size: 10, name: "Times New Roman" };
   mainClientCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
   mainClientCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  mainClientCell.border = { top: { style: "medium" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "medium" } };
+  mainClientCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   for (let i = 0; i < 5; i++) {
     const col = String.fromCharCode(70 + i); // F..J
@@ -938,7 +938,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cellRef.font = { bold: true, size: 10, name: "Times New Roman" };
     cellRef.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
     cellRef.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-    cellRef.border = { top: { style: "medium" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "medium" } };
+    cellRef.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   }
 
   // K6 blank cell
@@ -947,7 +947,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   k6Cell.font = { bold: true, size: 10, name: "Times New Roman" };
   k6Cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
   k6Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k6Cell.border = { top: { style: "medium" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "medium" } };
+  k6Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   // Totals (exact values)
   const mainClientGrossInjection = lossesCalculationData.mainClient.grossInjectionMWH || 0;
@@ -1022,7 +1022,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   abtMeterLabelCell.font = { bold: true, size: 10, name: "Times New Roman" };
   abtMeterLabelCell.alignment = { horizontal: "right", vertical: "middle", wrapText: true };
   abtMeterLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  abtMeterLabelCell.border = { top: { style: "thin" }, left: { style: "medium" }, bottom: { style: "thin" }, right: { style: "medium" } };
+  abtMeterLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const meterCells = [{ col: "E7", value: lossesCalculationData.mainClient.meterNumber || "", bgColor: "D9D9D9" }];
   const maxSubClients = 5;
@@ -1040,7 +1040,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.font = { bold: true, size: 10, name: "Times New Roman" };
     cell.alignment = { horizontal: "center", vertical: "middle" };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: m.bgColor } };
-    cell.border = { top: { style: "thin" }, left: { style: "medium" }, bottom: { style: "thin" }, right: { style: "medium" } };
+    cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
 
   // K7 blank cell
@@ -1049,14 +1049,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   k7Cell.font = { bold: true, size: 10, name: "Times New Roman" };
   k7Cell.alignment = { horizontal: "center", vertical: "middle" };
   k7Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k7Cell.border = { top: { style: "thin" }, left: { style: "medium" }, bottom: { style: "thin" }, right: { style: "medium" } };
+  k7Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const voltageLabelCell = summarySheet.getCell("D8");
   voltageLabelCell.value = "Voltage Level";
   voltageLabelCell.font = { bold: true, size: 10, name: "Times New Roman" };
   voltageLabelCell.alignment = { horizontal: "right", vertical: "middle", wrapText: true };
   voltageLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  voltageLabelCell.border = { top: { style: "thin" }, left: { style: "medium" }, bottom: { style: "thin" }, right: { style: "medium" } };
+  voltageLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const voltageCells = [{ col: "E8", value: lossesCalculationData.mainClient.mainClientDetail.voltageLevel || "", bgColor: "D9D9D9" }];
   for (let i = 0; i < maxSubClients; i++) {
@@ -1073,7 +1073,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.font = { size: 10, name: "Times New Roman" };
     cell.alignment = { horizontal: "center", vertical: "middle" };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: v.bgColor } };
-    cell.border = { top: { style: "thin" }, left: { style: "medium" }, bottom: { style: "thin" }, right: { style: "medium" } };
+    cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
 
   // K8 blank cell
@@ -1082,14 +1082,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   k8Cell.font = { size: 10, name: "Times New Roman" };
   k8Cell.alignment = { horizontal: "center", vertical: "middle" };
   k8Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k8Cell.border = { top: { style: "thin" }, left: { style: "medium" }, bottom: { style: "thin" }, right: { style: "medium" } };
+  k8Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const ctptLabelCell = summarySheet.getCell("D9");
   ctptLabelCell.value = "CTPT Sr.No.";
   ctptLabelCell.font = { bold: true, size: 10, name: "Times New Roman" };
   ctptLabelCell.alignment = { horizontal: "right", vertical: "middle" };
   ctptLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  ctptLabelCell.border = { top: { style: "thin" }, left: { style: "medium" }, bottom: { style: "thin" }, right: { style: "medium" } };
+  ctptLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const ctptCells = [{ col: "E9", value: lossesCalculationData.mainClient.mainClientDetail.ctptSrNo || "", bgColor: "D9D9D9" }];
   for (let i = 0; i < maxSubClients; i++) {
@@ -1106,7 +1106,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.font = { size: 10, name: "Times New Roman" };
     cell.alignment = { horizontal: "center", vertical: "middle" };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: v.bgColor } };
-    cell.border = { top: { style: "thin" }, left: { style: "medium" }, bottom: { style: "thin" }, right: { style: "medium" } };
+    cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
 
   // K9 blank cell
@@ -1115,14 +1115,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   k9Cell.font = { size: 10, name: "Times New Roman" };
   k9Cell.alignment = { horizontal: "center", vertical: "middle" };
   k9Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k9Cell.border = { top: { style: "thin" }, left: { style: "medium" }, bottom: { style: "thin" }, right: { style: "medium" } };
+  k9Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const ctRatioLabelCell = summarySheet.getCell("D10");
   ctRatioLabelCell.value = "CT Ratio (A/A)";
   ctRatioLabelCell.font = { bold: true, size: 10, name: "Times New Roman" };
   ctRatioLabelCell.alignment = { horizontal: "right", vertical: "middle" };
   ctRatioLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  ctRatioLabelCell.border = { top: { style: "thin" }, left: { style: "medium" }, bottom: { style: "thin" }, right: { style: "medium" } };
+  ctRatioLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const ctRatioCells = [{ col: "E10", value: lossesCalculationData.mainClient.mainClientDetail.ctRatio || "", bgColor: "D9D9D9" }];
   for (let i = 0; i < maxSubClients; i++) {
@@ -1139,7 +1139,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.font = { size: 10, name: "Times New Roman" };
     cell.alignment = { horizontal: "center", vertical: "middle" };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: v.bgColor } };
-    cell.border = { top: { style: "thin" }, left: { style: "medium" }, bottom: { style: "thin" }, right: { style: "medium" } };
+    cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
 
   // K10 blank cell
@@ -1148,7 +1148,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   k10Cell.font = { size: 10, name: "Times New Roman" };
   k10Cell.alignment = { horizontal: "center", vertical: "middle" };
   k10Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k10Cell.border = { top: { style: "thin" }, left: { style: "medium" }, bottom: { style: "thin" }, right: { style: "medium" } };
+  k10Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const ptRatioLabelCell = summarySheet.getCell("D11");
   ptRatioLabelCell.value = "PT Ratio (V/V)";
@@ -1172,7 +1172,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.font = { size: 10, name: "Times New Roman" };
     cell.alignment = { horizontal: "center", vertical: "middle" };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: v.bgColor } };
-    cell.border = { top: { style: "thin" }, left: { style: "medium" }, bottom: { style: "thin" }, right: { style: "medium" } };
+    cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
 
   // K11 blank cell
@@ -1181,14 +1181,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   k11Cell.font = { size: 10, name: "Times New Roman" };
   k11Cell.alignment = { horizontal: "center", vertical: "middle" };
   k11Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k11Cell.border = { top: { style: "thin" }, left: { style: "medium" }, bottom: { style: "thin" }, right: { style: "medium" } };
+  k11Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const mfLabelCell = summarySheet.getCell("D12");
   mfLabelCell.value = "MF";
   mfLabelCell.font = { bold: true, size: 10, name: "Times New Roman" };
   mfLabelCell.alignment = { horizontal: "right", vertical: "middle" };
   mfLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  mfLabelCell.border = { top: { style: "thin" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "medium" } };
+  mfLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const mfCells = [{
     col: "E12",
@@ -1209,7 +1209,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.font = { size: 10, name: "Times New Roman" };
     cell.alignment = { horizontal: "center", vertical: "middle" };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: v.bgColor } };
-    cell.border = { top: { style: "thin" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "medium" } };
+    cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
 
   // K12 blank cell
@@ -1218,7 +1218,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   k12Cell.font = { size: 10, name: "Times New Roman" };
   k12Cell.alignment = { horizontal: "center", vertical: "middle" };
   k12Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k12Cell.border = { top: { style: "thin" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "medium" } };
+  k12Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   // Row 13 spacer before table
   summarySheet.getRow(13).height = 15;
@@ -1232,7 +1232,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   discomBlockLabel.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
   discomBlockLabel.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFF00" } };
   discomBlockLabel.border = {
-    top: { style: "medium" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "thin" },
+    top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" },
   };
 
   // Row labels in column C (yellow)
@@ -1241,7 +1241,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   r14.font = { bold: true, size: 10, name: "Times New Roman" };
   r14.alignment = { horizontal: "center", vertical: "middle" };
   r14.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFF00" } };
-  r14.border = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  r14.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const r15 = summarySheet.getCell("C15");
   r15.value = "TOTAL Units";
@@ -1255,7 +1255,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   r16.font = { bold: true, size: 10, name: "Times New Roman" };
   r16.alignment = { horizontal: "center", vertical: "middle" };
   r16.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFF00" } };
-  r16.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "medium" }, right: { style: "thin" } };
+  r16.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   // DISCOM columns D..J
   const discoms = ["DGVCL", "MGVCL", "PGVCL", "UGVCL", "TAECO", "TSECO", "TEL", "TOTAL"];
@@ -1294,8 +1294,8 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     nameCell.alignment = { horizontal: "center", vertical: "middle" };
     nameCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: isPink ? lightPink : yellow } };
     nameCell.border = {
-      top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "thin" },
-      right: { style: i === discoms.length - 1 ? "medium" : "thin" },
+      top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" },
+      right: { style: i === discoms.length - 1 ? "thin" : "thin" },
     };
 
     // Row 15: TOTAL Units (3-decimals as text)
@@ -1306,7 +1306,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     valCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: isPink ? lightPink : yellow } };
     valCell.border = {
       top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" },
-      right: { style: i === discoms.length - 1 ? "medium" : "thin" },
+      right: { style: i === discoms.length - 1 ? "thin" : "thin" },
     };
 
     // Row 16: Percentage (2-decimals + %)
@@ -1317,8 +1317,8 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     pctCell.alignment = { horizontal: "center", vertical: "middle" };
     pctCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: isPink ? lightPink : yellow } };
     pctCell.border = {
-      top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "medium" },
-      right: { style: i === discoms.length - 1 ? "medium" : "thin" },
+      top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" },
+      right: { style: i === discoms.length - 1 ? "thin" : "thin" },
     };
   }
 
@@ -1344,7 +1344,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     { cell: `C${headerRow}`, value: "HT Consumer No.", bgColor: "D9D9D9" },
     { cell: `D${headerRow}`, value: "Wheeling Division Office/Location", bgColor: "D9D9D9" },
     { cell: `E${headerRow}`, value: "Wheeling DISCOM", bgColor: "D9D9D9" },
-    { cell: `F${headerRow}`, value: "Project Capacity (kW) (AC)", bgColor: "D9D9D9", borderRight: "medium" },
+    { cell: `F${headerRow}`, value: "Project Capacity (kW) (AC)", bgColor: "D9D9D9", borderRight: "thin" },
     { cell: `G${headerRow}`, value: "Share in Gross Injected Units to S/S (MWh)", bgColor: "D9D9D9" },
     { cell: `H${headerRow}`, value: "Share in Gross Drawl Units from S/S (MWh)", bgColor: "D9D9D9" },
     { cell: `I${headerRow}`, value: "Net Injected Units to S/S (MWh)", bgColor: "D9D9D9" },
@@ -1375,23 +1375,23 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     top: { style: "thin" },
     left: { style: "thin" },
     bottom: { style: "thin" },
-    right: { style: "medium" },
+    right: { style: "thin" },
   };
 
-  // Outer medium border for header row
+  // Outer thin border for header row
   const firstHeaderCol = "A";
   const lastHeaderCol = "J";
   const leftCell = summarySheet.getCell(`${firstHeaderCol}${headerRow}`);
-  leftCell.border = { ...leftCell.border, left: { style: "medium" } };
+  leftCell.border = { ...leftCell.border, left: { style: "thin" } };
   const rightCell = summarySheet.getCell(`${lastHeaderCol}${headerRow}`);
-  rightCell.border = { ...rightCell.border, right: { style: "medium" } };
+  rightCell.border = { ...rightCell.border, right: { style: "thin" } };
   for (let col = 1; col <= 10; col++) {
     const colChar = String.fromCharCode(64 + col);
     const cell = summarySheet.getCell(`${colChar}${headerRow}`);
-    cell.border = { ...cell.border, top: { style: "medium" }, bottom: { style: "medium" } };
+    cell.border = { ...cell.border, top: { style: "thin" }, bottom: { style: "thin" } };
   }
-  // Add medium top and bottom borders to K18
-  k18Cell.border = { ...k18Cell.border, top: { style: "medium" }, bottom: { style: "medium" } };
+  // Add thin top and bottom borders to K18
+  k18Cell.border = { ...k18Cell.border, top: { style: "thin" }, bottom: { style: "thin" } };
 
   // Data rows
   let rowNum = dataStartRow; // starts at 19
@@ -1441,7 +1441,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         if (partIndex === 0) {
           summarySheet.getCell(`F${currentRowNum}`).value = subClient.acCapacityKw || "";
           summarySheet.getCell(`F${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle" };
-          summarySheet.getCell(`F${currentRowNum}`).border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "medium" } };
+          summarySheet.getCell(`F${currentRowNum}`).border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
           if (subClientData.partclient.length > 1) {
             summarySheet.mergeCells(`F${currentRowNum}:F${currentRowNum + subClientData.partclient.length - 1}`);
@@ -1450,7 +1450,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
                 top: i === 0 ? { style: "thin" } : { style: "none" },
                 left: { style: "thin" },
                 bottom: i === subClientData.partclient.length - 1 ? { style: "thin" } : { style: "none" },
-                right: { style: "medium" },
+                right: { style: "thin" },
               };
             }
           }
@@ -1482,7 +1482,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         kDataCell.value = "";
         kDataCell.font = { size: 10, name: "Times New Roman" };
         kDataCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-        kDataCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "medium" } };
+        kDataCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
         // Increase border for rows 25-27, columns F-K
         if (currentRowNum >= 25 && currentRowNum <= 27) {
@@ -1491,10 +1491,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
             const cell = summarySheet.getCell(`${col}${currentRowNum}`);
             const currentBorder = cell.border || {};
             cell.border = {
-              top: { style: "medium" },
-              left: { style: currentBorder.left?.style === "medium" ? "medium" : "thin" },
-              bottom: { style: "medium" },
-              right: { style: "medium" },
+              top: { style: "thin" },
+              left: { style: currentBorder.left?.style === "thin" ? "thin" : "thin" },
+              bottom: { style: "thin" },
+              right: { style: "thin" },
             };
           });
         }
@@ -1531,7 +1531,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
       summarySheet.getCell(`F${currentRowNum}`).value = subClient.acCapacityKw || "";
       summarySheet.getCell(`F${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle" };
-      summarySheet.getCell(`F${currentRowNum}`).border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "medium" } };
+      summarySheet.getCell(`F${currentRowNum}`).border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
       for (let col = 3; col <= 10; col++) {
         if (col !== 6) {
@@ -1557,7 +1557,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       kDataCell.value = "";
       kDataCell.font = { size: 10, name: "Times New Roman" };
       kDataCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-      kDataCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "medium" } };
+      kDataCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
       // Increase border for rows 25-27, columns F-K
       if (currentRowNum >= 25 && currentRowNum <= 27) {
@@ -1566,10 +1566,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
           const cell = summarySheet.getCell(`${col}${currentRowNum}`);
           const currentBorder = cell.border || {};
           cell.border = {
-            top: { style: "medium" },
-            left: { style: currentBorder.left?.style === "medium" ? "medium" : "thin" },
-            bottom: { style: "medium" },
-            right: { style: "medium" },
+            top: { style: "thin" },
+            left: { style: currentBorder.left?.style === "thin" ? "thin" : "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" },
           };
         });
       }
@@ -1586,14 +1586,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       top: { style: "thin" },
       left: { style: "thin" },
       bottom: { style: "thin" },
-      right: { style: col === 6 ? "medium" : "thin" }, // keep F medium border
+      right: { style: col === 6 ? "thin" : "thin" }, // keep F thin border
     };
   }
   // K cell for blank row
   if (blankRowNum >= 18 && blankRowNum <= 27) {
     const kBlankCell = summarySheet.getCell(`K${blankRowNum}`);
     kBlankCell.value = "";
-    kBlankCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "medium" } };
+    kBlankCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   }
   // Increase border for rows 25-27, columns F-K (blank row)
   if (blankRowNum >= 25 && blankRowNum <= 27) {
@@ -1601,10 +1601,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     colsFtoK.forEach((col) => {
       const cell = summarySheet.getCell(`${col}${blankRowNum}`);
       cell.border = {
-        top: { style: "medium" },
-        left: { style: col === "F" ? "medium" : "thin" },
-        bottom: { style: "medium" },
-        right: { style: "medium" },
+        top: { style: "thin" },
+        left: { style: col === "F" ? "thin" : "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" },
       };
     });
   }
@@ -1620,7 +1620,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   totalLabelCells.font = { bold: true, size: 12, name: "Times New Roman" };
   totalLabelCells.alignment = { horizontal: "center", vertical: "middle" };
   totalLabelCells.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  totalLabelCells.border = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: { style: "thin" } };
+  totalLabelCells.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   // Compute totals
   let totalCapacity = 0;
@@ -1647,7 +1647,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   // F..J totals
   const fCell = summarySheet.getCell(`F${totalRowNum}`);
   fCell.value = totalCapacity;
-  fCell.border = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: { style: "medium" } };
+  fCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   summarySheet.getCell(`G${totalRowNum}`).value = displayExactValue(totalGrossInjected);
   summarySheet.getCell(`H${totalRowNum}`).value = displayExactValue(totalGrossDrawl);
@@ -1660,10 +1660,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.alignment = { horizontal: "center", vertical: "middle" };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
     cell.border = {
-      top: { style: "medium" },
+      top: { style: "thin" },
       left: { style: "thin" },
-      bottom: { style: "medium" },
-      right: { style: col === 6 ? "medium" : "thin" },
+      bottom: { style: "thin" },
+      right: { style: col === 6 ? "thin" : "thin" },
     };
   }
   // K cell for totals row
@@ -1673,7 +1673,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     kTotalCell.font = { bold: true, size: 12, name: "Times New Roman" };
     kTotalCell.alignment = { horizontal: "center", vertical: "middle" };
     kTotalCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-    kTotalCell.border = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: { style: "medium" } };
+    kTotalCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   }
   // Increase border for rows 25-27, columns F-K (totals row)
   if (totalRowNum >= 25 && totalRowNum <= 27) {
@@ -1681,10 +1681,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     colsFtoK.forEach((col) => {
       const cell = summarySheet.getCell(`${col}${totalRowNum}`);
       cell.border = {
-        top: { style: "medium" },
-        left: { style: col === "F" ? "medium" : "thin" },
-        bottom: { style: "medium" },
-        right: { style: "medium" },
+        top: { style: "thin" },
+        left: { style: col === "F" ? "thin" : "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" },
       };
     });
   }
@@ -1724,10 +1724,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       const cell = summarySheet.getCell(`${String.fromCharCode(64 + col)}${row}`);
       cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
       cell.border = {
-        top: { style: 'medium' },
-        left: { style: 'medium' },
-        bottom: { style: 'medium' },
-        right: { style: 'medium' }
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
       };
     }
   });
@@ -1742,14 +1742,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     const leftCell = summarySheet.getCell(`A${row}`);
     leftCell.border = {
       ...leftCell.border,
-      left: { style: 'medium' }
+      left: { style: 'thin' }
     };
 
     // Right border (column J)
     const rightCell = summarySheet.getCell(`J${row}`);
     rightCell.border = {
       ...rightCell.border,
-      right: { style: 'medium' }
+      right: { style: 'thin' }
     };
   }
 
@@ -1759,7 +1759,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     const cell = summarySheet.getCell(`${colChar}${firstDataRow}`);
     cell.border = {
       ...cell.border,
-      top: { style: 'medium' }
+      top: { style: 'thin' }
     };
   }
 
@@ -1769,7 +1769,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     const cell = summarySheet.getCell(`${colChar}${lastDataRow}`);
     cell.border = {
       ...cell.border,
-      bottom: { style: 'medium' }
+      bottom: { style: 'thin' }
     };
   }
 
@@ -1789,10 +1789,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     const cell = summarySheet.getCell(merge.split(':')[0]);
     cell.border = {
       ...cell.border,
-      top: { style: 'medium' },
-      left: { style: 'medium' },
-      bottom: { style: 'medium' },
-      right: { style: 'medium' }
+      top: { style: 'thin' },
+      left: { style: 'thin' },
+      bottom: { style: 'thin' },
+      right: { style: 'thin' }
     };
   });
 
@@ -1856,10 +1856,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     fgColor: { argb: 'FFFF00' } // Yellow background
   };
   companyCell.border = {
-    top: { style: 'medium', color: { argb: '000000' } },
-    left: { style: 'medium', color: { argb: '000000' } },
-    bottom: { style: 'medium', color: { argb: '000000' } },
-    right: { style: 'medium', color: { argb: '000000' } }
+    top: { style: 'thin', color: { argb: '000000' } },
+    left: { style: 'thin', color: { argb: '000000' } },
+    bottom: { style: 'thin', color: { argb: '000000' } },
+    right: { style: 'thin', color: { argb: '000000' } }
   };
 
   // Month cell in G3
@@ -1878,10 +1878,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     fgColor: { argb: 'FFFF00' } // Yellow background
   };
   monthCell.border = {
-    top: { style: 'medium', color: { argb: '000000' } },
-    left: { style: 'medium', color: { argb: '000000' } },
-    bottom: { style: 'medium', color: { argb: '000000' } },
-    right: { style: 'medium', color: { argb: '000000' } }
+    top: { style: 'thin', color: { argb: '000000' } },
+    left: { style: 'thin', color: { argb: '000000' } },
+    bottom: { style: 'thin', color: { argb: '000000' } },
+    right: { style: 'thin', color: { argb: '000000' } }
   };
 
   // Date range from H3:J3 (will be extended later to include CHECK-SUM columns)
@@ -1901,10 +1901,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     fgColor: { argb: 'FFFF00' } // Yellow background
   };
   dateRangeCell.border = {
-    top: { style: 'medium', color: { argb: '000000' } },
-    left: { style: 'medium', color: { argb: '000000' } },
-    bottom: { style: 'medium', color: { argb: '000000' } },
-    right: { style: 'medium', color: { argb: '000000' } }
+    top: { style: 'thin', color: { argb: '000000' } },
+    left: { style: 'thin', color: { argb: '000000' } },
+    bottom: { style: 'thin', color: { argb: '000000' } },
+    right: { style: 'thin', color: { argb: '000000' } }
   };
 
   masterdataSheet.getColumn('H').width = 14;
@@ -1987,10 +1987,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     fgColor: { argb: '92D050' }
   };
   combinedCell.border = {
-    top: { style: 'medium' },
-    left: { style: 'medium' },
-    bottom: { style: 'medium' },
-    right: { style: 'medium' }
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
   };
   masterdataSheet.getColumn('D').width = 22;
 
@@ -2020,9 +2020,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         };
         cell1.border = {
           top: { style: 'thin' },
-          left: { style: 'medium' },
+          left: { style: 'thin' },
           bottom: { style: 'thin' },
-          right: { style: 'medium' }
+          right: { style: 'thin' }
         };
 
         // Row 6 - DISCOM
@@ -2038,9 +2038,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         };
         cell2.border = {
           top: { style: 'thin' },
-          left: { style: 'medium' },
+          left: { style: 'thin' },
           bottom: { style: 'thin' },
-          right: { style: 'medium' }
+          right: { style: 'thin' }
         };
 
         // Row 7 - DIVISION NAME
@@ -2056,9 +2056,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         };
         cell3.border = {
           top: { style: 'thin' },
-          left: { style: 'medium' },
+          left: { style: 'thin' },
           bottom: { style: 'thin' },
-          right: { style: 'medium' }
+          right: { style: 'thin' }
         };
 
         // Row 8 - CONSUMER NO.
@@ -2074,9 +2074,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         };
         cell4.border = {
           top: { style: 'thin' },
-          left: { style: 'medium' },
+          left: { style: 'thin' },
           bottom: { style: 'thin' },
-          right: { style: 'medium' }
+          right: { style: 'thin' }
         };
 
         // Row 9 - Blank Row (color-matched to subclient)
@@ -2088,10 +2088,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
           fgColor: { argb: color }
         };
         cellGap.border = {
-          top: { style: 'medium' },
-          left: { style: 'medium' },
-          bottom: { style: 'medium' },
-          right: { style: 'medium' }
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' }
         };
 
         masterdataSheet.getColumn(colLetter).width = 22;
@@ -2114,9 +2114,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       };
       cell1.border = {
         top: { style: 'thin' },
-        left: { style: 'medium' },
+        left: { style: 'thin' },
         bottom: { style: 'thin' },
-        right: { style: 'medium' }
+        right: { style: 'thin' }
       };
 
       // Row 6 - DISCOM
@@ -2131,9 +2131,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       };
       cell2.border = {
         top: { style: 'thin' },
-        left: { style: 'medium' },
+        left: { style: 'thin' },
         bottom: { style: 'thin' },
-        right: { style: 'medium' }
+        right: { style: 'thin' }
       };
 
       // Row 7 - DIVISION NAME
@@ -2149,9 +2149,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       };
       cell3.border = {
         top: { style: 'thin' },
-        left: { style: 'medium' },
+        left: { style: 'thin' },
         bottom: { style: 'thin' },
-        right: { style: 'medium' }
+        right: { style: 'thin' }
       };
 
       // Row 8 - CONSUMER NO.
@@ -2166,9 +2166,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       };
       cell4.border = {
         top: { style: 'thin' },
-        left: { style: 'medium' },
+        left: { style: 'thin' },
         bottom: { style: 'thin' },
-        right: { style: 'medium' }
+        right: { style: 'thin' }
       };
 
       const cellD9 = masterdataSheet.getCell('D9');
@@ -2180,9 +2180,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       };
       cellD9.border = {
         top: { style: 'thin' },
-        left: { style: 'medium' },
+        left: { style: 'thin' },
         bottom: { style: 'thin' },
-        right: { style: 'medium' }
+        right: { style: 'thin' }
       };
 
       // Row 9 - Blank Row (color-matched to subclient)
@@ -2194,10 +2194,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         fgColor: { argb: color }
       };
       cellGap.border = {
-        top: { style: 'medium' },
-        left: { style: 'medium' },
-        bottom: { style: 'medium' },
-        right: { style: 'medium' }
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
       };
 
       masterdataSheet.getColumn(colLetter).width = 22;
@@ -2221,10 +2221,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     fgColor: { argb: 'F2F2F2' } // Light gray background
   };
   totalCell.border = {
-    top: { style: 'medium' },
-    left: { style: 'medium' },
-    bottom: { style: 'medium' },
-    right: { style: 'medium' }
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
   };
   masterdataSheet.getColumn(totalCol).width = 22;
 
@@ -2249,10 +2249,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     fgColor: { argb: 'F2F2F2' } // Light gray background
   };
   checkCellRow5.border = {
-    top: { style: 'medium' },
-    left: { style: 'medium' },
-    bottom: { style: 'medium' },
-    right: { style: 'medium' }
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
   };
 
   // CHECK-SUM section - Rows 6-7-8: "EXCESS INJECTION PPA ***" (merged with adjacent column)
@@ -2267,10 +2267,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     fgColor: { argb: 'FFFFFF' }
   };
   checkCellRow6.border = {
-    top: { style: 'medium' },
-    left: { style: 'medium' },
-    bottom: { style: 'medium' },
-    right: { style: 'medium' }
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
   };
 
   // Row 9: MWH and KWH sub-headers
@@ -2320,10 +2320,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   // Update the border for the extended merged cell
   const dateRangeCellExtended = masterdataSheet.getCell('H3');
   dateRangeCellExtended.border = {
-    top: { style: 'medium', color: { argb: '000000' } },
-    left: { style: 'medium', color: { argb: '000000' } },
-    bottom: { style: 'medium', color: { argb: '000000' } },
-    right: { style: 'medium', color: { argb: '000000' } }
+    top: { style: 'thin', color: { argb: '000000' } },
+    left: { style: 'thin', color: { argb: '000000' } },
+    bottom: { style: 'thin', color: { argb: '000000' } },
+    right: { style: 'thin', color: { argb: '000000' } }
   };
 
   // Data rows (GROSS INJECTION, GROSS DRAWL, NET INJECTION)
@@ -2892,10 +2892,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       }
     });
   }
-  // ===== ADD MEDIUM BORDER AROUND MAIN DATA SECTION (ROWS 5-12) =====
+  // ===== ADD thin BORDER AROUND MAIN DATA SECTION (ROWS 5-12) =====
   const lastDataCol = checkSumCol; // This is the CHECK-SUM column
 
-  // Apply medium border around the entire section
+  // Apply thin border around the entire section
   for (let row = 5; row <= 12; row++) {
     for (let col = 1; col <= lastDataCol.charCodeAt(0) - 64; col++) {
       const colLetter = String.fromCharCode(64 + col);
@@ -2906,15 +2906,15 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
       // Determine border style based on position
       const borderStyles = {
-        top: row === 5 || isSpecialColumn ? 'medium' : 'thin',
-        bottom: row === 12 ? 'medium' : 'thin',
-        left: col === 1 ? 'medium' : 'medium',
-        right: colLetter === lastDataCol ? 'medium' : 'thin'
+        top: row === 5 || isSpecialColumn ? 'thin' : 'thin',
+        bottom: row === 12 ? 'thin' : 'thin',
+        left: col === 1 ? 'thin' : 'thin',
+        right: colLetter === lastDataCol ? 'thin' : 'thin'
       };
 
-      // For special columns, ensure top border is medium from rows 5-12
+      // For special columns, ensure top border is thin from rows 5-12
       if (isSpecialColumn && row >= 5 && row <= 12) {
-        borderStyles.top = 'medium';
+        borderStyles.top = 'thin';
       }
 
       cell.border = {
@@ -2926,26 +2926,26 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     }
   }
 
-  // Special case for the blank row (row 9) - ensure it has medium borders on all sides
+  // Special case for the blank row (row 9) - ensure it has thin borders on all sides
   for (let col = 1; col <= lastDataCol.charCodeAt(0) - 64; col++) {
     const colLetter = String.fromCharCode(64 + col);
     const cell = masterdataSheet.getCell(`${colLetter}9`);
 
     cell.border = {
-      top: { style: 'medium', color: { argb: '000000' } },
-      left: { style: 'medium', color: { argb: '000000' } },
-      bottom: { style: 'medium', color: { argb: '000000' } },
-      right: { style: 'medium', color: { argb: '000000' } }
+      top: { style: 'thin', color: { argb: '000000' } },
+      left: { style: 'thin', color: { argb: '000000' } },
+      bottom: { style: 'thin', color: { argb: '000000' } },
+      right: { style: 'thin', color: { argb: '000000' } }
     };
   }
 
-  // Explicitly set medium top borders for special columns (rows 5-12)
+  // Explicitly set thin top borders for special columns (rows 5-12)
   ['D', totalCol, checkSumCol].forEach(colLetter => {
     for (let row = 5; row <= 12; row++) {
       const cell = masterdataSheet.getCell(`${colLetter}${row}`);
       cell.border = {
         ...cell.border,
-        top: { style: 'medium', color: { argb: '000000' } }
+        top: { style: 'thin', color: { argb: '000000' } }
       };
     }
   });
@@ -3003,10 +3003,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     fgColor: { argb: '92D050' } // Green background
   };
   titleCell.border = {
-    top: { style: 'medium', color: { argb: '000000' } },
-    left: { style: 'medium', color: { argb: '000000' } },
-    bottom: { style: 'medium', color: { argb: '000000' } },
-    right: { style: 'medium', color: { argb: '000000' } }
+    top: { style: 'thin', color: { argb: '000000' } },
+    left: { style: 'thin', color: { argb: '000000' } },
+    bottom: { style: 'thin', color: { argb: '000000' } },
+    right: { style: 'thin', color: { argb: '000000' } }
   };
 
   const dateCell1 = worksheet.getCell('J2');
@@ -3020,10 +3020,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     fgColor: { argb: 'FFFF00' } // Yellow background
   };
   dateCell1.border = {
-    top: { style: 'medium', color: { argb: '000000' } },
-    left: { style: 'medium', color: { argb: '000000' } },
-    bottom: { style: 'medium', color: { argb: '000000' } },
-    right: { style: 'medium', color: { argb: '000000' } }
+    top: { style: 'thin', color: { argb: '000000' } },
+    left: { style: 'thin', color: { argb: '000000' } },
+    bottom: { style: 'thin', color: { argb: '000000' } },
+    right: { style: 'thin', color: { argb: '000000' } }
   };
 
 
@@ -3037,10 +3037,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     fgColor: { argb: 'FFFF00' } // Yellow background
   };
   dateCell2.border = {
-    top: { style: 'medium', color: { argb: '000000' } },
-    left: { style: 'medium', color: { argb: '000000' } },
-    bottom: { style: 'medium', color: { argb: '000000' } },
-    right: { style: 'medium', color: { argb: '000000' } }
+    top: { style: 'thin', color: { argb: '000000' } },
+    left: { style: 'thin', color: { argb: '000000' } },
+    bottom: { style: 'thin', color: { argb: '000000' } },
+    right: { style: 'thin', color: { argb: '000000' } }
   };
 
   worksheet.insertRow(3);
@@ -3079,10 +3079,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       fgColor: { argb: 'D9D9D9' } // Light gray background
     };
     cell.border = {
-      top: { style: 'medium' },
-      left: { style: 'medium' },
-      bottom: { style: 'medium' },
-      right: { style: 'medium' }
+      top: { style: 'thin' },
+      left: { style: 'thin' },
+      bottom: { style: 'thin' },
+      right: { style: 'thin' }
     };
   });
 
@@ -3197,10 +3197,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         fgColor: { argb: 'D9D9D9' } // Light gray background
       };
       cell.border = {
-        top: { style: 'medium' },
-        left: { style: 'medium' },
-        bottom: { style: 'medium' },
-        right: { style: 'medium' }
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
       };
     });
 
@@ -3332,12 +3332,12 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         right: { style: 'thin' }
       };
     }
-    // ===== ADD MEDIUM BORDER AROUND ENTIRE TABLE =====
+    // ===== ADD thin BORDER AROUND ENTIRE TABLE =====
     const firstDataRow = 4;
     const lastDataRows = 5 + dataRowsLosses.length + 1; // Includes header and total row
     const lastCol = 'P';
 
-    // Apply medium border around the entire table
+    // Apply thin border around the entire table
     for (let row = firstDataRow; row <= lastDataRows; row++) {
       for (let col = 1; col <= lastCol.charCodeAt(0) - 64; col++) {
         const colLetter = String.fromCharCode(64 + col);
@@ -3345,10 +3345,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
         // Determine border style based on position
         const borderStyles = {
-          top: row === firstDataRow ? 'medium' : 'thin',
-          bottom: row === lastDataRows ? 'medium' : 'thin',
-          left: col === 1 ? 'medium' : 'thin',
-          right: colLetter === lastCol ? 'medium' : 'thin'
+          top: row === firstDataRow ? 'thin' : 'thin',
+          bottom: row === lastDataRows ? 'thin' : 'thin',
+          left: col === 1 ? 'thin' : 'thin',
+          right: colLetter === lastCol ? 'thin' : 'thin'
         };
 
         cell.border = {
@@ -3365,23 +3365,23 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       const cell = worksheet.getCell(mergeRange.split(':')[0]);
       cell.border = {
         ...cell.border,
-        top: { style: 'medium', color: { argb: '000000' } },
-        left: { style: 'medium', color: { argb: '000000' } },
-        bottom: { style: 'medium', color: { argb: '000000' } },
-        right: { style: 'medium', color: { argb: '000000' } }
+        top: { style: 'thin', color: { argb: '000000' } },
+        left: { style: 'thin', color: { argb: '000000' } },
+        bottom: { style: 'thin', color: { argb: '000000' } },
+        right: { style: 'thin', color: { argb: '000000' } }
       };
     });
 
-    // Special handling for total row to ensure all borders are medium
+    // Special handling for total row to ensure all borders are thin
     for (let col = 1; col <= lastCol.charCodeAt(0) - 64; col++) {
       const colLetter = String.fromCharCode(64 + col);
       const cell = worksheet.getCell(`${colLetter}${lastDataRows}`);
 
       cell.border = {
-        top: { style: 'medium', color: { argb: '000000' } },
-        left: { style: col === 1 ? 'medium' : 'thin', color: { argb: '000000' } },
-        bottom: { style: 'medium', color: { argb: '000000' } },
-        right: { style: colLetter === lastCol ? 'medium' : 'thin', color: { argb: '000000' } }
+        top: { style: 'thin', color: { argb: '000000' } },
+        left: { style: col === 1 ? 'thin' : 'thin', color: { argb: '000000' } },
+        bottom: { style: 'thin', color: { argb: '000000' } },
+        right: { style: colLetter === lastCol ? 'thin' : 'thin', color: { argb: '000000' } }
       };
     }
 
@@ -3389,66 +3389,66 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     const firstSubclientDataRow = 6;
     const lastSubclientDataRow = 5 + dataRowsLosses.length; // Last row of subclient data
 
-    // Columns that need medium left border (Gross Injected Units - C)
-    const columnsWithMediumLeftBorder = ['C'];
+    // Columns that need thin left border (Gross Injected Units - C)
+    const columnsWiththinLeftBorder = ['C'];
 
-    // Columns that need medium right border (Overall Gross Drawl - F, Net Drawl - H, 
+    // Columns that need thin right border (Overall Gross Drawl - F, Net Drawl - H, 
     // Difference in Drawl - J, % Weightage Drawl - L)
-    const columnsWithMediumRightBorder = ['F', 'H', 'J', 'L'];
+    const columnsWiththinRightBorder = ['F', 'H', 'J', 'L'];
 
-    // Apply medium borders to specified columns for all data rows
+    // Apply thin borders to specified columns for all data rows
     for (let currentRow = firstSubclientDataRow; currentRow <= lastSubclientDataRow; currentRow++) {
-      // Medium left borders
-      columnsWithMediumLeftBorder.forEach(columnLetter => {
+      // thin left borders
+      columnsWiththinLeftBorder.forEach(columnLetter => {
         const targetCell = worksheet.getCell(`${columnLetter}${currentRow}`);
         targetCell.border = {
           ...targetCell.border,
-          left: { style: 'medium', color: { argb: '000000' } }
+          left: { style: 'thin', color: { argb: '000000' } }
         };
       });
 
-      // Medium right borders
-      columnsWithMediumRightBorder.forEach(columnLetter => {
+      // thin right borders
+      columnsWiththinRightBorder.forEach(columnLetter => {
         const targetCell = worksheet.getCell(`${columnLetter}${currentRow}`);
         targetCell.border = {
           ...targetCell.border,
-          right: { style: 'medium', color: { argb: '000000' } }
+          right: { style: 'thin', color: { argb: '000000' } }
         };
       });
     }
 
     // Also update the header row (row 5) for these columns
-    columnsWithMediumLeftBorder.forEach(columnLetter => {
+    columnsWiththinLeftBorder.forEach(columnLetter => {
       const headerCell = worksheet.getCell(`${columnLetter}5`);
       headerCell.border = {
         ...headerCell.border,
-        left: { style: 'medium', color: { argb: '000000' } }
+        left: { style: 'thin', color: { argb: '000000' } }
       };
     });
 
-    columnsWithMediumRightBorder.forEach(columnLetter => {
+    columnsWiththinRightBorder.forEach(columnLetter => {
       const headerCell = worksheet.getCell(`${columnLetter}5`);
       headerCell.border = {
         ...headerCell.border,
-        right: { style: 'medium', color: { argb: '000000' } }
+        right: { style: 'thin', color: { argb: '000000' } }
       };
     });
 
     // Update the total row borders for these columns
     const totalRowNumber = 5 + dataRowsLosses.length + 1;
-    columnsWithMediumLeftBorder.forEach(columnLetter => {
+    columnsWiththinLeftBorder.forEach(columnLetter => {
       const totalRowCell = worksheet.getCell(`${columnLetter}${totalRowNumber}`);
       totalRowCell.border = {
         ...totalRowCell.border,
-        left: { style: 'medium', color: { argb: '000000' } }
+        left: { style: 'thin', color: { argb: '000000' } }
       };
     });
 
-    columnsWithMediumRightBorder.forEach(columnLetter => {
+    columnsWiththinRightBorder.forEach(columnLetter => {
       const totalRowCell = worksheet.getCell(`${columnLetter}${totalRowNumber}`);
       totalRowCell.border = {
         ...totalRowCell.border,
-        right: { style: 'medium', color: { argb: '000000' } }
+        right: { style: 'thin', color: { argb: '000000' } }
       };
     });
     // Merge the Total cell across columns
@@ -3495,10 +3495,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       fgColor: { argb: "FFFF00" }
     };
     abtHeaderCell.border = {
-      top: { style: "medium", color: { argb: '000000' } },
-      left: { style: "medium", color: { argb: '000000' } },
-      bottom: { style: "medium", color: { argb: '000000' } },
-      right: { style: "medium", color: { argb: '000000' } }
+      top: { style: "thin", color: { argb: '000000' } },
+      left: { style: "thin", color: { argb: '000000' } },
+      bottom: { style: "thin", color: { argb: '000000' } },
+      right: { style: "thin", color: { argb: '000000' } }
     };
 
     // SLDC APPROVED DATA header
@@ -3512,10 +3512,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       fgColor: { argb: "92D050" }
     };
     sldcHeaderCell.border = {
-      top: { style: "medium", color: { argb: '000000' } },
-      left: { style: "medium", color: { argb: '000000' } },
-      bottom: { style: "medium", color: { argb: '000000' } },
-      right: { style: "medium", color: { argb: '000000' } }
+      top: { style: "thin", color: { argb: '000000' } },
+      left: { style: "thin", color: { argb: '000000' } },
+      bottom: { style: "thin", color: { argb: '000000' } },
+      right: { style: "thin", color: { argb: '000000' } }
     };
 
     // Client colors array extended to support up to 10 subclients
@@ -3567,10 +3567,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         fgColor: { argb: clientColors[index % clientColors.length] },
       };
       clientHeaderCell.border = {
-        top: { style: "medium", color: { argb: '000000' } },
-        left: { style: "medium", color: { argb: '000000' } },
-        bottom: { style: "medium", color: { argb: '000000' } },
-        right: { style: "medium", color: { argb: '000000' } }
+        top: { style: "thin", color: { argb: '000000' } },
+        left: { style: "thin", color: { argb: '000000' } },
+        bottom: { style: "thin", color: { argb: '000000' } },
+        right: { style: "thin", color: { argb: '000000' } }
       };
 
       // Set column widths for the additional columns
@@ -3607,10 +3607,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       fgColor: { argb: "FFFF00" },
     };
     summaryHeaderCell.border = {
-      top: { style: "medium" },
-      left: { style: "medium" },
-      bottom: { style: "medium" },
-      right: { style: "medium" },
+      top: { style: "thin" },
+      left: { style: "thin" },
+      bottom: { style: "thin" },
+      right: { style: "thin" },
     };
 
     // D column - merge and style
@@ -3625,10 +3625,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       fgColor: { argb: "92D050" },
     };
     totalColDCell.border = {
-      top: { style: "medium" },
-      left: { style: "medium" },
-      bottom: { style: "medium" },
-      right: { style: "medium" },
+      top: { style: "thin" },
+      left: { style: "thin" },
+      bottom: { style: "thin" },
+      right: { style: "thin" },
     };
 
     // Clear the cell below (just in case)
@@ -3658,10 +3658,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
           fgColor: { argb: color },
         };
         totalCell.border = {
-          top: { style: "medium" },
-          left: { style: "medium" },
-          bottom: { style: "medium" },
-          right: { style: "medium" },
+          top: { style: "thin" },
+          left: { style: "thin" },
+          bottom: { style: "thin" },
+          right: { style: "thin" },
         };
 
         // Move to the next column for partclients
@@ -3727,10 +3727,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
           fgColor: { argb: color },
         };
         totalCell.border = {
-          top: { style: "medium" },
-          left: { style: "medium" },
-          bottom: { style: "medium" },
-          right: { style: "medium" },
+          top: { style: "thin" },
+          left: { style: "thin" },
+          bottom: { style: "thin" },
+          right: { style: "thin" },
         };
 
         // Move to next column for "NET Total after Losses"
