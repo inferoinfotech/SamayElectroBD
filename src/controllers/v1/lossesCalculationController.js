@@ -356,7 +356,7 @@ const generateLossesCalculation = async (req, res) => {
         totalSubByKey.set(
           key,
           (totalSubByKey.get(key) || 0) +
-            (Number(it.grossInjectedUnitsTotal) || 0)
+          (Number(it.grossInjectedUnitsTotal) || 0)
         );
       }
     }
@@ -760,7 +760,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       ? `0${lossesCalculationData.month}`
       : lossesCalculationData.month;
 
-  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const monthName = monthNames[lossesCalculationData.month - 1];
 
   // Prepare data rows
@@ -1467,7 +1467,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         }
 
         // Bold numeric cols
-        ["G","H","I","J"].forEach((col) => {
+        ["G", "H", "I", "J"].forEach((col) => {
           const cell = summarySheet.getCell(`${col}${currentRowNum}`);
           cell.font = { ...cell.font, bold: true };
         });
@@ -1542,7 +1542,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         }
       }
 
-      ["G","H","I","J"].forEach((col) => {
+      ["G", "H", "I", "J"].forEach((col) => {
         const cell = summarySheet.getCell(`${col}${currentRowNum}`);
         cell.font = { ...cell.font, bold: true };
       });
@@ -1884,7 +1884,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     right: { style: 'medium', color: { argb: '000000' } }
   };
 
-  // Date range from H3:J3
+  // Date range from H3:J3 (will be extended later to include CHECK-SUM columns)
   masterdataSheet.mergeCells('H3:J3');
   const dateRangeCell = masterdataSheet.getCell('H3');
   dateRangeCell.value = `01-${monthStr}-${lossesCalculationData.year} to ${lastDay}-${monthStr}-${lossesCalculationData.year}`;
@@ -2212,13 +2212,13 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   // Total DGVCL Share (merged from row 5 to 8)
   masterdataSheet.mergeCells(`${totalCol}5:${totalCol}8`);
   const totalCell = masterdataSheet.getCell(`${totalCol}5`);
-  totalCell.value = 'Total Share (MWh)';
+  totalCell.value = 'Total DGVCL Share (MWh)';
   totalCell.font = { bold: true, size: 10, name: 'Times New Roman' };
   totalCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
   totalCell.fill = {
     type: 'pattern',
     pattern: 'solid',
-    fgColor: { argb: 'FFFFFF' }
+    fgColor: { argb: 'F2F2F2' } // Light gray background
   };
   totalCell.border = {
     top: { style: 'medium' },
@@ -2228,24 +2228,103 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   };
   masterdataSheet.getColumn(totalCol).width = 22;
 
-  // CHECK-SUM (merged from row 5 to 8)
-  masterdataSheet.mergeCells(`${checkSumCol}5:${checkSumCol}8`);
-  const checkCell = masterdataSheet.getCell(`${checkSumCol}5`);
-  checkCell.value = 'CHECK-SUM';
-  checkCell.font = { bold: true, size: 10, name: 'Times New Roman' };
-  checkCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-  checkCell.fill = {
+  // Add background color to Total Share column row 9 (blank row)
+  const totalCellRow9 = masterdataSheet.getCell(`${totalCol}9`);
+  totalCellRow9.fill = {
     type: 'pattern',
     pattern: 'solid',
-    fgColor: { argb: 'FFFFFF' }
+    fgColor: { argb: 'F2F2F2' } // Light gray background
   };
-  checkCell.border = {
+
+  // CHECK-SUM section - Row 5: "CHECK - SUM with SLDC Approved Data" (merged with adjacent column)
+  const checkSumColNext = String.fromCharCode(checkSumCol.charCodeAt(0) + 1);
+  masterdataSheet.mergeCells(`${checkSumCol}5:${checkSumColNext}5`);
+  const checkCellRow5 = masterdataSheet.getCell(`${checkSumCol}5`);
+  checkCellRow5.value = 'CHECK - SUM with SLDC Approved Data';
+  checkCellRow5.font = { bold: true, size: 10, name: 'Times New Roman' };
+  checkCellRow5.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  checkCellRow5.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'F2F2F2' } // Light gray background
+  };
+  checkCellRow5.border = {
     top: { style: 'medium' },
     left: { style: 'medium' },
     bottom: { style: 'medium' },
     right: { style: 'medium' }
   };
-  masterdataSheet.getColumn(checkSumCol).width = 22;
+
+  // CHECK-SUM section - Rows 6-7-8: "EXCESS INJECTION PPA ***" (merged with adjacent column)
+  masterdataSheet.mergeCells(`${checkSumCol}6:${checkSumColNext}8`);
+  const checkCellRow6 = masterdataSheet.getCell(`${checkSumCol}6`);
+  checkCellRow6.value = 'EXCESS INJECTION PPA ***';
+  checkCellRow6.font = { bold: true, size: 10, name: 'Times New Roman' };
+  checkCellRow6.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  checkCellRow6.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFFFF' }
+  };
+  checkCellRow6.border = {
+    top: { style: 'medium' },
+    left: { style: 'medium' },
+    bottom: { style: 'medium' },
+    right: { style: 'medium' }
+  };
+
+  // Row 9: MWH and KWH sub-headers
+  const mwhCell = masterdataSheet.getCell(`${checkSumCol}9`);
+  mwhCell.value = 'MWH';
+  mwhCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  mwhCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  mwhCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFFFF' }
+  };
+  mwhCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
+  };
+
+  const kwhCell = masterdataSheet.getCell(`${checkSumColNext}9`);
+  kwhCell.value = 'KWH';
+  kwhCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  kwhCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  kwhCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFFFF' }
+  };
+  kwhCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
+  };
+
+  masterdataSheet.getColumn(checkSumCol).width = 15;
+  masterdataSheet.getColumn(checkSumColNext).width = 15;
+
+  // Extend row 3 date range merge to include CHECK-SUM columns
+  // First unmerge the existing H3:J3, then merge from H3 to checkSumColNext
+  try {
+    masterdataSheet.unMergeCells('H3:J3');
+  } catch (e) {
+    // If already unmerged or doesn't exist, continue
+  }
+  masterdataSheet.mergeCells(`H3:${checkSumColNext}3`);
+  // Update the border for the extended merged cell
+  const dateRangeCellExtended = masterdataSheet.getCell('H3');
+  dateRangeCellExtended.border = {
+    top: { style: 'medium', color: { argb: '000000' } },
+    left: { style: 'medium', color: { argb: '000000' } },
+    bottom: { style: 'medium', color: { argb: '000000' } },
+    right: { style: 'medium', color: { argb: '000000' } }
+  };
 
   // Data rows (GROSS INJECTION, GROSS DRAWL, NET INJECTION)
   const dataRows = [
@@ -2277,8 +2356,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         }, 0);
         values.push(sum);
 
-        // Add CHECK-SUM
-        values.push("0.000");
+        // Calculate CHECK-SUM: Main client value - Sum of all subclients
+        const mainClientValue = data.mainClient.grossInjectionMWH;
+        const checkSumMWH = mainClientValue - sum;
+        const checkSumKWH = checkSumMWH * 1000;
+
+        // Add CHECK-SUM (MWH and KWH)
+        values.push(checkSumMWH); // MWH
+        values.push(checkSumKWH); // KWH
 
         return values;
       },
@@ -2310,7 +2395,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         }, 0);
         values.push(sum);
 
-        values.push("0.000");
+        // Calculate CHECK-SUM: Main client value - Sum of all subclients
+        const mainClientValue = data.mainClient.drawlMWH;
+        const checkSumMWH = mainClientValue - sum;
+        const checkSumKWH = checkSumMWH * 1000;
+
+        // Add CHECK-SUM (MWH and KWH)
+        values.push(checkSumMWH); // MWH
+        values.push(checkSumKWH); // KWH
         return values;
       },
       format: value => value.toFixed(3)
@@ -2341,12 +2433,22 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         }, 0);
         values.push(sum);
 
-        values.push("0.000");
+        // Calculate CHECK-SUM: Main client value - Sum of all subclients
+        const mainClientValue = data.mainClient.grossInjectionMWH + data.mainClient.drawlMWH;
+        const checkSumMWH = mainClientValue - sum;
+        const checkSumKWH = checkSumMWH * 1000;
+
+        // Add CHECK-SUM (MWH and KWH)
+        values.push(checkSumMWH); // MWH
+        values.push(checkSumKWH); // KWH
         return values;
       },
       format: value => value.toFixed(3)
     }
   ];
+
+  // Track CHECK-SUM values to determine header background colors
+  const checkSumValues = { mwh: [], kwh: [] };
 
   dataRows.forEach((row, rowIndex) => {
     const dataRow = 10 + rowIndex;
@@ -2367,10 +2469,41 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     };
 
     // Value cells start from column D
+    // Structure: values[0] = mainClient (D), values[1..n-4] = subclients (E, F, ...), values[n-3] = Total (totalCol), values[n-2] = MWH (checkSumCol), values[n-1] = KWH (checkSumColNext)
+
+    // Count total number of data columns (excluding Total and CHECK-SUM)
+    // This is: 1 (mainClient) + number of subclients/partclients
+    const numDataColumns = values.length - 3; // Exclude Total, MWH, and KWH
+
     values.forEach((value, colIndex) => {
-      const colLetter = String.fromCharCode(68 + colIndex); // D, E, F...
+      let colLetter;
+
+      if (colIndex === values.length - 3) {
+        // Total column - use the predefined totalCol
+        colLetter = totalCol;
+      } else if (colIndex === values.length - 2) {
+        // CHECK-SUM MWH column
+        colLetter = checkSumCol;
+      } else if (colIndex === values.length - 1) {
+        // CHECK-SUM KWH column
+        colLetter = checkSumColNext;
+      } else {
+        // Regular columns: mainClient (colIndex 0) → D, subclients/partclients (colIndex 1 to numDataColumns-1) → E, F, G, ...
+        // Calculate column letter: D (68) + colIndex
+        colLetter = String.fromCharCode(68 + colIndex); // D = 68, E = 69, F = 70, etc.
+      }
+
       const cell = masterdataSheet.getCell(`${colLetter}${dataRow}`);
+
+      // Apply color to value cells based on column
+      const isTotal = colIndex === values.length - 3;
+      const isCheckSumMWH = colIndex === values.length - 2;
+      const isCheckSumKWH = colIndex === values.length - 1;
+
+      // For rows 10-11-12, use default format (3 decimals) for all columns including CHECK-SUM
+      // For rows 14+, CHECK-SUM formatting is handled separately in the time block section
       cell.value = typeof value === 'number' ? row.format(value) : value;
+
       cell.font = { size: 10, bold: true, name: 'Times New Roman' };
       cell.alignment = { horizontal: 'center', vertical: 'middle' };
       cell.border = {
@@ -2380,14 +2513,49 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         right: { style: 'thin' }
       };
 
-      // Apply color to value cells based on column
+      // Apply yellow background to CHECK-SUM cells if non-zero
+      if (isCheckSumMWH || isCheckSumKWH) {
+        // Get the original numeric value (before formatting)
+        const numericValue = typeof value === 'number' ? value : parseFloat(value) || 0;
+        // Check if value is non-zero (with tolerance for floating point errors)
+        if (Math.abs(numericValue) > 0.0001) {
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFFFFF00' } // Yellow background
+          };
+          // Track the value for header coloring (store original numeric value)
+          if (isCheckSumMWH) {
+            checkSumValues.mwh.push(numericValue);
+          } else if (isCheckSumKWH) {
+            checkSumValues.kwh.push(numericValue);
+          }
+        } else {
+          // Apply light gray background (#f2f2f2) if zero
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'F2F2F2' } // Light gray background
+          };
+        }
+      }
+
+      // Apply background color to Total Share column (rows 10-12)
+      if (isTotal) {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'F2F2F2' } // Light gray background
+        };
+      }
+
       if (colLetter === 'D') {
         cell.fill = {
           type: 'pattern',
           pattern: 'solid',
           fgColor: { argb: '92D050' } // Green for main client          
         };
-      } else if (colIndex >= 1 && colIndex < values.length - 2) {
+      } else if (!isTotal && !isCheckSumMWH && !isCheckSumKWH && colIndex >= 1 && colIndex < values.length - 3) {
         // Find which subclient/partclient this column belongs to
         let color;
         let clientIndex = 0;
@@ -2422,6 +2590,100 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       }
     });
   });
+
+  // Apply yellow background to headers if any CHECK-SUM values are non-zero
+  const hasNonZeroMWH = checkSumValues.mwh.some(val => Math.abs(val) > 0.0001);
+  const hasNonZeroKWH = checkSumValues.kwh.some(val => Math.abs(val) > 0.0001);
+  const hasAnyNonZero = hasNonZeroMWH || hasNonZeroKWH;
+
+  // Apply yellow background to "EXCESS INJECTION PPA ***" header (rows 6-8) if any non-zero values
+  // Otherwise apply light gray background (#f2f2f2)
+  if (hasAnyNonZero) {
+    checkCellRow6.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFFFF00' } // Yellow background
+    };
+  } else {
+    checkCellRow6.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'F2F2F2' } // Light gray background
+    };
+  }
+
+  // Apply yellow background to MWH header (row 9) if any MWH values are non-zero
+  // Otherwise apply light gray background (#f2f2f2)
+  if (hasNonZeroMWH) {
+    mwhCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFFFF00' } // Yellow background
+    };
+  } else {
+    mwhCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'F2F2F2' } // Light gray background
+    };
+  }
+
+  // Apply yellow background to KWH header (row 9) if any KWH values are non-zero
+  // Otherwise apply light gray background (#f2f2f2)
+  if (hasNonZeroKWH) {
+    kwhCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFFFF00' } // Yellow background
+    };
+  } else {
+    kwhCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'F2F2F2' } // Light gray background
+    };
+  }
+
+  // Add background color and border to Total Share column row 13
+  const totalCellRow13 = masterdataSheet.getCell(`${totalCol}13`);
+  totalCellRow13.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'F2F2F2' } // Light gray background
+  };
+  totalCellRow13.border = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
+  };
+
+  // Add background color and border to CHECK-SUM columns row 13 (MWH and KWH)
+  const checkSumMWHCellRow13 = masterdataSheet.getCell(`${checkSumCol}13`);
+  checkSumMWHCellRow13.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'F2F2F2' } // Light gray background
+  };
+  checkSumMWHCellRow13.border = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
+  };
+
+  const checkSumKWHCellRow13 = masterdataSheet.getCell(`${checkSumColNext}13`);
+  checkSumKWHCellRow13.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'F2F2F2' } // Light gray background
+  };
+  checkSumKWHCellRow13.border = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
+  };
 
   // ===== DETAILED TIME BLOCK DATA =====
   const timeBlockStartRow = 13;
@@ -2595,19 +2857,25 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
           }
         });
 
-        // CHECK-SUM value (original styling)
-        const checkSumCell = masterdataSheet.getCell(`${checkSumCol}${rowIndex}`);
-        const checkSumValue = subClientsSum - mainValue;
-        checkSumCell.value = checkSumValue;
-        checkSumCell.numFmt = '0.0';
-        checkSumCell.font = { size: 10, name: 'Times New Roman' };
-        checkSumCell.alignment = { horizontal: 'center', vertical: 'middle' };
-        checkSumCell.border = {
-          top: { style: 'thin' },
-          left: { style: 'thin' },
-          bottom: { style: 'thin' },
-          right: { style: 'thin' }
-        };
+        // Calculate CHECK-SUM: Main client value - Sum of all subclients
+        const checkSumMWH = mainValue - subClientsSum;
+        const checkSumKWH = checkSumMWH * 1000;
+
+        // CHECK-SUM MWH column - 4 decimal places
+        const checkSumMWHCell = masterdataSheet.getCell(`${checkSumCol}${rowIndex}`);
+        checkSumMWHCell.value = checkSumMWH;
+        checkSumMWHCell.numFmt = '0.0000';
+        checkSumMWHCell.font = { size: 10, name: 'Times New Roman' };
+        checkSumMWHCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        // No border for CHECK-SUM columns starting from row 14
+
+        // CHECK-SUM KWH column - 1 decimal place
+        const checkSumKWHCell = masterdataSheet.getCell(`${checkSumColNext}${rowIndex}`);
+        checkSumKWHCell.value = checkSumKWH;
+        checkSumKWHCell.numFmt = '0.0';
+        checkSumKWHCell.font = { size: 10, name: 'Times New Roman' };
+        checkSumKWHCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        // No border for CHECK-SUM columns starting from row 14
 
         // Style the row with font size 10 (original styling)
         for (let col = 1; col <= timeBlockHeaders.length; col++) {
