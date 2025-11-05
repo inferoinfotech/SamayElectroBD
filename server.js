@@ -18,7 +18,7 @@ const ClientProgressField = require('./src/routes/v1/ClientProgressFIledRoutes')
 
 const app = express();
 app.use(express.json());  // Body parsing middleware
-const allowedOrigins = ["http://localhost:5173", "https://samayelectro.vercel.app", "https://www.samayelectro.com"];
+const allowedOrigins = ["http://localhost:5173", "https://samayelectro.vercel.app", "https://www.samayelectro.com", "https://samay-electro-fd-pd63.vercel.app"];
 
 app.get('/', (req, res) => {
   res.send('API is running...');
