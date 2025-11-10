@@ -7,91 +7,159 @@ const PartClient = require('../../models/v1/partClient.model');
 const logger = require('../../utils/logger');  // Importing the logger
 const ExcelJS = require('exceljs');
 
-// Controller: generateLossesCalculation
-// Mirrors Excel logic end-to-end. Main client 15-min values follow your LET() formula:
-//   - Build baseline s = SUMIFS(Load Survey ...)
-//   - p = SUMIF(>0 of baseline), n = SUMIF(<0 of baseline)
-//   - f = 1 + IF(s<=0, (MAIN_ENTRY!L9 - n)/n, (MAIN_ENTRY!B9 - p)/p)  == (target / sum_by_sign)
-//   - main interval = s * f * (-SUMMARY!E12/1000)  -> mapped here as (AE * mf * pn)/1000 * f
 
-const parseOr = (val, fallback, { forbidZero = false } = {}) => {
-  const n = Number(val);
-  if (!Number.isFinite(n)) return fallback;
-  if (forbidZero && n === 0) return fallback;
-  return n;
-};
+/**
+ * Request body (new format):
+ * {
+ *   mainClientId: "....",
+ *   month: 1,
+ *   year: 2025,
+ *   // optional legacy fallback:
+ *   SLDCGROSSINJECTION: 356.889,
+ *   SLDCGROSSDRAWL: -3.333,
+ *   // MAIN ENTRY (preferred)
+ *   mainEntry: {
+ *     approvedInjection: 356.889, // B9
+ *     approvedDrawl: -3.333,      // L9 (signed negative or positive? we handle as number)
+ *     discom: {                   // C9..I9
+ *       DGVCL: 356.883,
+ *       MGVCL: 0,
+ *       PGVCL: 0,
+ *       UGVCL: 0,
+ *       TAECO: 0,
+ *       TSECO: 0,
+ *       TEL: 0
+ *     }
+ *   }
+ * }
+ */
+// ---------- Helpers ----------
+function pluckNumber(v, def = null) {
+  if (v == null) return def;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : def;
+  const n = parseFloat(String(v).replace(/,/g, ''));
+  return Number.isFinite(n) ? n : def;
+}
+function round3(x) {
+  if (!Number.isFinite(x)) return 0;
+  return Number((Math.round((x + Number.EPSILON) * 1000) / 1000).toFixed(3));
+}
+function getParam(obj, ...keys) {
+  const src = obj || {};
+  for (const k of keys) if (src[k] != null) return src[k];
+  const lower = Object.create(null);
+  for (const k of Object.keys(src)) lower[k.toLowerCase()] = k;
+  for (const k of keys) {
+    const hit = lower[String(k).toLowerCase()];
+    if (hit && src[hit] != null) return src[hit];
+  }
+  return undefined;
+}
+function getActiveEnergy(entry) {
+  const p = entry?.parameters ?? {};
+  const candidates = [
+    'Bidirectional Active(I-E)',
+    'Bidirectional Active (I-E)',
+    'I-E', 'I - E',
+    'Net Active', 'NET ACTIVE', 'Net(ACTIVE)', 'Net (Active)',
+  ];
+  let val = getParam(p, ...candidates);
+  if (val == null) {
+    // Best-effort fallback if file uses another naming
+    const k = Object.keys(p).find(
+      (k) => /active/i.test(k) && /(net|bidirectional|i-?e)/i.test(k)
+    );
+    if (k) val = p[k];
+  }
+  return pluckNumber(val);
+}
+function getDateStr(entry) {
+  return String(getParam(entry?.parameters ?? {}, 'Date', 'DATE', 'date') ?? '');
+}
+function getTimeStr(entry) {
+  return String(
+    getParam(entry?.parameters ?? {}, 'Interval Start', 'IntervalStart', 'Start Time', 'Time', 'START TIME') ?? ''
+  );
+}
 
-const generateLossesCalculation = async (req, res) => {
+// ---------- Controller ----------
+async function generateLossesCalculation(req, res) {
   try {
-    const { mainClientId, month, year } = req.body;
-
-    // SLDC monthly approved
-    const SLDC_INJ = req.body.SLDCGROSSINJECTION; // positive
-    let SLDC_DRW = req.body.SLDCGROSSDRAWL;       // should be negative
-    if (typeof SLDC_DRW === "number" && SLDC_DRW > 0) {
-      SLDC_DRW = -Math.abs(SLDC_DRW);
-    }
-
-    // DISCOM wise (injection only)
-    const DISCOM_VALUES = {
-      DGVCL: req.body.DGVCL,
-      MGVCL: req.body.MGVCL,
-      PGVCL: req.body.PGVCL,
-      UGVCL: req.body.UGVCL,
-      TAECO: req.body.TAECO,
-      TSECO: req.body.TSECO,
-      TEL: req.body.TEL,
-    };
-
-    if (!mainClientId || !month || !year) {
-      return res
-        .status(400)
-        .json({ message: "Missing required parameters: mainClientId, month, year." });
-    }
-
-    // cache (legacy, still SLDC-based)
-    const existing = await LossesCalculationData.findOne({
+    const {
       mainClientId,
       month,
       year,
-      ...(SLDC_INJ !== undefined && { SLDCGROSSINJECTION: SLDC_INJ }),
-      ...(SLDC_DRW !== undefined && { SLDCGROSSDRAWL: SLDC_DRW }),
+      SLDCGROSSINJECTION, // fallback route
+      SLDCGROSSDRAWL,     // fallback route
+      mainEntry,          // preferred payload { approvedInjection, approvedDrawl, discom: {...} }
+    } = req.body;
+
+    if (!mainClientId || !month || !year) {
+      return res.status(400).json({ message: 'Missing required parameters: mainClientId, month, year.' });
+    }
+
+    // Normalize SLDC inputs (take numeric strings too)
+    const approvedInjection = mainEntry?.approvedInjection != null
+      ? pluckNumber(mainEntry.approvedInjection, null)
+      : (SLDCGROSSINJECTION != null ? pluckNumber(SLDCGROSSINJECTION, null) : null);
+
+    const approvedDrawl = mainEntry?.approvedDrawl != null
+      ? pluckNumber(mainEntry.approvedDrawl, null)
+      : (SLDCGROSSDRAWL != null ? pluckNumber(SLDCGROSSDRAWL, null) : null);
+
+    // Normalize DISCOM targets (reporting only)
+    const discomTargetsRaw = mainEntry?.discom || {};
+    const discomKeys = ['DGVCL', 'MGVCL', 'PGVCL', 'UGVCL', 'TAECO', 'TSECO', 'TEL'];
+    const discomTargets = Object.fromEntries(
+      discomKeys.map((k) => [k, pluckNumber(discomTargetsRaw[k], 0)])
+    );
+
+    // Check for an exact cached doc when SLDC values are supplied
+    const existingCalculation = await LossesCalculationData.findOne({
+      mainClientId,
+      month,
+      year,
+      ...(approvedInjection !== null && { SLDCGROSSINJECTION: approvedInjection }),
+      ...(approvedDrawl !== null && { SLDCGROSSDRAWL: approvedDrawl }),
     });
-    if (existing) {
-      existing.updatedAt = new Date();
-      await existing.save();
+
+    if (existingCalculation) {
+      existingCalculation.updatedAt = new Date();
+      await existingCalculation.save();
       return res.status(200).json({
-        message: "Existing calculation data retrieved successfully.",
-        data: existing,
+        message: 'Existing calculation data retrieved successfully.',
+        data: existingCalculation,
       });
     }
 
-    // 1) main client
+    // Load entities
     const mainClientData = await MainClient.findById(mainClientId);
-    if (!mainClientData)
+    if (!mainClientData) {
       return res.status(404).json({ message: "Main Client not found" });
+    }
 
-    // 2) sub clients
     const subClients = await SubClient.find({ mainClient: mainClientId });
-    if (!subClients.length)
+    if (!subClients.length) {
       return res.status(404).json({ message: "No Sub Clients found" });
+    }
 
-    // 2.1) part clients
     const partClientsData = {};
     await Promise.all(
-      subClients.map(async (sc) => {
+      subClients.map(async (s) => {
         try {
-          partClientsData[sc._id] = await PartClient.find({ subClient: sc._id });
-        } catch {
-          partClientsData[sc._id] = [];
+          partClientsData[s._id] = await PartClient.find({ subClient: s._id });
+        } catch (e) {
+          logger?.error?.(`Error loading part-clients for ${s.name}: ${e.message}`);
+          partClientsData[s._id] = [];
         }
       })
     );
 
-    // 3) meter data
+    // Meter data lookups
     const clientsUsingCheckMeter = [];
-    const subsUsingCheck = [];
+    const subClientsUsingCheckMeter = [];
 
+    // Main (main → check)
     let mainClientMeterData = await MeterData.find({
       meterNumber: mainClientData.abtMainMeter?.meterNumber,
       month,
@@ -110,32 +178,30 @@ const generateLossesCalculation = async (req, res) => {
     if (!mainClientMeterData.length) {
       return res.status(400).json({
         message:
-          "Meter data missing for Main Client. Both abtMainMeter and abtCheckMeter files are missing.",
+          "Meter data missing for Main Client. Both abtMainMeter and abtCheckMeter files are missing. Calculation cannot proceed.",
       });
     }
 
+    // Subs (main → check)
     const subClientMeterData = {};
     const missingSubClientMeters = [];
     await Promise.all(
-      subClients.map(async (sc) => {
+      subClients.map(async (s) => {
         let data = await MeterData.find({
-          meterNumber: sc.abtMainMeter?.meterNumber,
+          meterNumber: s.abtMainMeter?.meterNumber,
           month,
           year,
         });
-
-        if (!data.length && sc.abtCheckMeter?.meterNumber) {
+        if (!data.length && s.abtCheckMeter?.meterNumber) {
           data = await MeterData.find({
-            meterNumber: sc.abtCheckMeter.meterNumber,
+            meterNumber: s.abtCheckMeter.meterNumber,
             month,
             year,
           });
-          if (data.length) subsUsingCheck.push(sc.name);
+          if (data.length) subClientsUsingCheckMeter.push(s.name);
         }
-
-        if (!data.length) missingSubClientMeters.push(sc.name);
-
-        subClientMeterData[sc._id] = data;
+        if (!data.length) missingSubClientMeters.push(s.name);
+        subClientMeterData[s._id] = data;
       })
     );
 
@@ -143,23 +209,27 @@ const generateLossesCalculation = async (req, res) => {
       return res.status(400).json({
         message: `Meter data missing for Sub Clients: ${missingSubClientMeters.join(
           ", "
-        )}. Both abtMainMeter and abtCheckMeter files are missing.`,
+        )}. Calculation cannot proceed.`,
       });
     }
 
-    // 4) init doc
-    let doc = new LossesCalculationData({
+    // -------- Initialize doc
+    const doc = new LossesCalculationData({
       mainClientId,
       month,
       year,
-      // save discom inputs
-      ...(DISCOM_VALUES.DGVCL !== undefined && { DGVCL: DISCOM_VALUES.DGVCL }),
-      ...(DISCOM_VALUES.MGVCL !== undefined && { MGVCL: DISCOM_VALUES.MGVCL }),
-      ...(DISCOM_VALUES.PGVCL !== undefined && { PGVCL: DISCOM_VALUES.PGVCL }),
-      ...(DISCOM_VALUES.UGVCL !== undefined && { UGVCL: DISCOM_VALUES.UGVCL }),
-      ...(DISCOM_VALUES.TAECO !== undefined && { TAECO: DISCOM_VALUES.TAECO }),
-      ...(DISCOM_VALUES.TSECO !== undefined && { TSECO: DISCOM_VALUES.TSECO }),
-      ...(DISCOM_VALUES.TEL !== undefined && { TEL: DISCOM_VALUES.TEL }),
+      SLDCGROSSINJECTION: approvedInjection ?? undefined,
+      SLDCGROSSDRAWL: approvedDrawl ?? undefined,
+
+      // keep targets only for reference (if your schema supports these fields)
+      DGVCL: Number.isFinite(discomTargets.DGVCL) ? discomTargets.DGVCL : undefined,
+      MGVCL: Number.isFinite(discomTargets.MGVCL) ? discomTargets.MGVCL : undefined,
+      PGVCL: Number.isFinite(discomTargets.PGVCL) ? discomTargets.PGVCL : undefined,
+      UGVCL: Number.isFinite(discomTargets.UGVCL) ? discomTargets.UGVCL : undefined,
+      TAECO: Number.isFinite(discomTargets.TAECO) ? discomTargets.TAECO : undefined,
+      TSECO: Number.isFinite(discomTargets.TSECO) ? discomTargets.TSECO : undefined,
+      TEL: Number.isFinite(discomTargets.TEL) ? discomTargets.TEL : undefined,
+
       mainClient: {
         meterNumber: mainClientMeterData[0].meterNumber,
         meterType: mainClientMeterData[0].meterType,
@@ -185,145 +255,73 @@ const generateLossesCalculation = async (req, res) => {
         netInjectionMWH: 0,
         mainClientMeterDetails: [],
       },
+
       subClient: [],
-      subClientoverall: { overallGrossInjectedUnits: 0, grossDrawlUnits: 0 },
-      difference: { diffInjectedUnits: 0, diffDrawlUnits: 0 },
+      subClientoverall: {
+        overallGrossInjectedUnits: 0,
+        grossDrawlUnits: 0,
+      },
+      difference: {
+        diffInjectedUnits: 0,
+        diffDrawlUnits: 0,
+      },
+      audit: {},
     });
 
-    // 5) MAIN baseline like Excel
-    const mainMF = parseOr(mainClientData.mf, 1, { forbidZero: true });
-    const mainPN = parseOr(mainClientData.pn, -1, { forbidZero: true });
+    // -------- MAIN intervals (raw → then scale to SLDC)
+    const mainPn = Number.isFinite(mainClientData.pn) ? mainClientData.pn : -1;
+    const mainMf = Number.isFinite(mainClientData.mf) ? mainClientData.mf : 1;
 
-    const baseline = [];
-    let pSum = 0;
-    let nSum = 0;
+    let mainRawPos = 0; // before scaling
+    let mainRawNeg = 0;
 
-    mainClientMeterData.forEach((meter) => {
-      meter.dataEntries.forEach((entry) => {
-        const rawAE =
-          entry.parameters["Bidirectional Active(I-E)"] ??
-          entry.parameters["Net Active"];
-        const ae = parseOr(rawAE, NaN);
-        if (!Number.isFinite(ae)) return;
+    mainClientMeterData.forEach((m) => {
+      m.dataEntries.forEach((e) => {
+        const aE = getActiveEnergy(e);
+        if (!Number.isFinite(aE)) return;
 
-        const s_base = (ae * mainMF * mainPN) / 1000; // =sheet * -(SUMMARY!E12/1000)
+        const vRaw = (aE * mainMf * mainPn) / 1000; // signed pre-scale
+        const date = getDateStr(e);
+        const time = getTimeStr(e);
 
-        baseline.push({
-          date: entry.parameters.Date,
-          time: entry.parameters["Interval Start"],
-          s_base,
+        doc.mainClient.mainClientMeterDetails.push({
+          date,
+          time,
+          grossInjectedUnitsTotal: vRaw, // will overwrite after scaling
+          helper: { raw: vRaw },
         });
 
-        if (s_base > 0) pSum += s_base;
-        else if (s_base < 0) nSum += s_base;
+        if (vRaw > 0) mainRawPos += vRaw;
+        else mainRawNeg += vRaw;
       });
     });
+    doc.audit.mainRaw = { pos: mainRawPos, neg: mainRawNeg };
 
-    const fPos =
-      pSum !== 0 && typeof SLDC_INJ === "number" ? SLDC_INJ / pSum : 1;
-    const fNeg =
-      nSum !== 0 && typeof SLDC_DRW === "number" ? SLDC_DRW / nSum : 1;
+    // -------- SUB intervals (ALWAYS RAW, no DISCOM scaling)
+    const allSubRows = [];
 
-    for (const row of baseline) {
-      const scaled =
-        row.s_base > 0 ? row.s_base * fPos : row.s_base < 0 ? row.s_base * fNeg : 0;
+    for (const s of subClients) {
+      const data = subClientMeterData[s._id];
+      const sPn = Number.isFinite(s.pn) ? s.pn : -1;
+      const sMf = Number.isFinite(s.mf) ? s.mf : 1;
 
-      doc.mainClient.mainClientMeterDetails.push({
-        date: row.date,
-        time: row.time,
-        grossInjectedUnitsTotal: scaled,
-        preSLDC: row.s_base,
-        scaleFactor: row.s_base > 0 ? fPos : row.s_base < 0 ? fNeg : 1,
-      });
-
-      if (scaled > 0) doc.mainClient.grossInjectionMWH += scaled;
-      else if (scaled < 0) doc.mainClient.drawlMWH += scaled;
-    }
-
-    doc.mainClient.netInjectionMWH =
-      doc.mainClient.grossInjectionMWH + doc.mainClient.drawlMWH;
-
-    // 6) counters for sub totals
-    let overallPosRaw = 0;
-    let overallNegRaw = 0;
-
-    // helper: main by timestamp
-    const mainByKey = new Map();
-    for (const it of doc.mainClient.mainClientMeterDetails) {
-      const key = `${it.date}__${it.time}`;
-      mainByKey.set(key, Number(it.grossInjectedUnitsTotal) || 0);
-    }
-
-    // build sub clients
-    for (const sc of subClients) {
-      const meterData = subClientMeterData[sc._id];
-      if (!meterData || !meterData.length) continue;
-
-      const { meterNumber, meterType } = meterData[0];
-
-      const scData = {
-        name: sc.name,
-        divisionName: sc.divisionName,
-        consumerNo: sc.consumerNo,
-        contactNo: sc.contactNo,
-        email: sc.email,
-        subClientId: sc._id,
-        meterNumber,
-        meterType,
-        discom: sc.discom,
-        voltageLevel: sc.voltageLevel,
-        ctptSrNo: sc.ctptSrNo,
-        ctRatio: sc.ctRatio,
-        ptRatio: sc.ptRatio,
-        mf: sc.mf,
-        acCapacityKw: sc.acCapacityKw,
+      const subBlock = {
+        name: s.name,
+        divisionName: s.divisionName,
+        consumerNo: s.consumerNo,
+        contactNo: s.contactNo,
+        email: s.email,
+        subClientId: s._id,
+        meterNumber: data[0].meterNumber,
+        meterType: data[0].meterType,
+        discom: s.discom,
+        voltageLevel: s.voltageLevel,
+        ctptSrNo: s.ctptSrNo,
+        ctRatio: s.ctRatio,
+        ptRatio: s.ptRatio,
+        mf: s.mf,
+        acCapacityKw: s.acCapacityKw,
         subClientsData: {
-          grossInjectionMWH: 0,
-          drawlMWH: 0,
-          netInjectionMWH: 0,
-          subClientMeterData: [],
-          weightageGrossInjecting: 0,
-          weightageGrossDrawl: 0,
-          lossesInjectedUnits: 0,
-          inPercentageOfLossesInjectedUnits: 0,
-          lossesDrawlUnits: 0,
-          inPercentageOfLossesDrawlUnits: 0,
-        },
-      };
-
-      meterData.forEach((meter) => {
-        meter.dataEntries.forEach((entry) => {
-          const v =
-            entry.parameters["Bidirectional Active(I-E)"] ??
-            entry.parameters["Net Active"];
-          if (v === undefined) return;
-          const Eraw = (v * sc.mf * sc.pn) / 1000;
-          const t = entry.parameters["Interval Start"];
-
-          scData.subClientsData.subClientMeterData.push({
-            date: entry.parameters.Date,
-            time: t,
-            grossInjectedUnitsTotal: Eraw,
-            redistributedToMain: 0,
-            netTotalAfterLosses: 0,
-          });
-
-          if (Eraw > 0) scData.subClientsData.grossInjectionMWH += Eraw;
-          else if (Eraw < 0) scData.subClientsData.drawlMWH += Eraw;
-        });
-      });
-
-      scData.subClientsData.netInjectionMWH =
-        scData.subClientsData.grossInjectionMWH +
-        scData.subClientsData.drawlMWH;
-
-      // part clients
-      const parts = partClientsData[sc._id];
-      if (parts && parts.length) {
-        scData.subClientsData.partclient = parts.map((p) => ({
-          divisionName: p.divisionName,
-          consumerNo: p.consumerNo,
-          sharingPercentage: Number(p.sharingPercentage),
           grossInjectionMWH: 0,
           drawlMWH: 0,
           netInjectionMWH: 0,
@@ -336,351 +334,226 @@ const generateLossesCalculation = async (req, res) => {
           inPercentageOfLossesInjectedUnits: 0,
           lossesDrawlUnits: 0,
           inPercentageOfLossesDrawlUnits: 0,
+          partclient: [],
+          subClientMeterData: [],
+        },
+      };
+
+      const pcs = partClientsData[s._id] || [];
+      if (pcs.length) {
+        subBlock.subClientsData.partclient = pcs.map((p) => ({
+          divisionName: p.divisionName,
+          consumerNo: p.consumerNo,
+          sharingPercentage: pluckNumber(p.sharingPercentage, 0),
+          grossInjectionMWHAfterLosses: 0,
+          drawlMWHAfterLosses: 0,
+          netInjectionMWHAfterLosses: 0,
+          grossInjectionMWH: 0,
+          drawlMWH: 0,
+          netInjectionMWH: 0,
+          weightageGrossInjecting: 0,
+          weightageGrossDrawl: 0,
+          lossesInjectedUnits: 0,
+          inPercentageOfLossesInjectedUnits: 0,
+          lossesDrawlUnits: 0,
+          inPercentageOfLossesDrawlUnits: 0,
         }));
       }
 
-      doc.subClient.push(scData);
+      data.forEach((m) => {
+        m.dataEntries.forEach((e) => {
+          const aE = getActiveEnergy(e);
+          if (!Number.isFinite(aE)) return;
 
-      overallPosRaw += scData.subClientsData.grossInjectionMWH;
-      overallNegRaw += scData.subClientsData.drawlMWH;
+          const v = (aE * sMf * sPn) / 1000; // signed raw
+          const date = getDateStr(e);
+          const time = getTimeStr(e);
+
+          subBlock.subClientsData.subClientMeterData.push({
+            date,
+            time,
+            grossInjectedUnitsTotal: v,
+            helper: { raw: v },
+          });
+
+          if (v > 0) subBlock.subClientsData.grossInjectionMWH += v;
+          else subBlock.subClientsData.drawlMWH += v;
+
+          allSubRows.push({ subId: String(s._id), discom: s.discom, val: v });
+        });
+      });
+
+      subBlock.subClientsData.netInjectionMWH =
+        subBlock.subClientsData.grossInjectionMWH + subBlock.subClientsData.drawlMWH;
+
+      doc.subClient.push(subBlock);
+      doc.subClientoverall.overallGrossInjectedUnits += subBlock.subClientsData.grossInjectionMWH;
+      doc.subClientoverall.grossDrawlUnits += subBlock.subClientsData.drawlMWH;
     }
 
-    doc.subClientoverall.overallGrossInjectedUnits = overallPosRaw;
-    doc.subClientoverall.grossDrawlUnits = overallNegRaw;
+    // -------- SCALE MAIN to SLDC (use MAIN RAW sums only)
+    let fPos = 1;
+    let fNeg = 1;
+    if (approvedInjection != null && mainRawPos !== 0) fPos = approvedInjection / mainRawPos;
+    if (approvedDrawl != null && mainRawNeg !== 0) fNeg = approvedDrawl / mainRawNeg; // neg/neg
 
-    // 7.1) redistribute to main (HELPER!G)
-    const totalSubByKey = new Map();
-    for (const sc of doc.subClient) {
-      for (const it of sc.subClientsData.subClientMeterData) {
-        const key = `${it.date}__${it.time}`;
-        totalSubByKey.set(
-          key,
-          (totalSubByKey.get(key) || 0) +
-          (Number(it.grossInjectedUnitsTotal) || 0)
-        );
-      }
-    }
-    for (const sc of doc.subClient) {
-      for (const it of sc.subClientsData.subClientMeterData) {
-        const key = `${it.date}__${it.time}`;
-        const mainV = mainByKey.get(key) ?? 0;
-        const subTot = totalSubByKey.get(key) ?? 0;
-        it.redistributedToMain =
-          subTot !== 0 ? (it.grossInjectedUnitsTotal * mainV) / subTot : 0;
-      }
-    }
+    doc.audit.mainScale = { fPos, fNeg };
 
-    // 8) legacy diff
+    let mainGrossAdj = 0;
+    let mainDrawlAdj = 0;
+    doc.mainClient.mainClientMeterDetails = doc.mainClient.mainClientMeterDetails.map((row) => {
+      const v = row.helper?.raw ?? row.grossInjectedUnitsTotal;
+      const adj = v > 0 ? v * fPos : v * fNeg;
+      const next = { ...row, grossInjectedUnitsTotal: adj };
+      if (adj > 0) mainGrossAdj += adj;
+      else mainDrawlAdj += adj;
+      return next;
+    });
+    doc.mainClient.grossInjectionMWH = mainGrossAdj;
+    doc.mainClient.drawlMWH = mainDrawlAdj;
+    doc.mainClient.netInjectionMWH = mainGrossAdj + mainDrawlAdj;
+
+    // -------- Differences (subs raw vs main scaled)
     doc.difference.diffInjectedUnits =
-      doc.subClientoverall.overallGrossInjectedUnits -
-      doc.mainClient.grossInjectionMWH;
+      doc.subClientoverall.overallGrossInjectedUnits - doc.mainClient.grossInjectionMWH;
     doc.difference.diffDrawlUnits =
       doc.subClientoverall.grossDrawlUnits - doc.mainClient.drawlMWH;
 
-    // 9) legacy weightages
-    for (const sc of doc.subClient) {
-      const sd = sc.subClientsData;
-      sd.weightageGrossInjecting =
-        overallPosRaw !== 0 ? (sd.grossInjectionMWH / overallPosRaw) * 100 : 0;
-      sd.weightageGrossDrawl =
-        overallNegRaw !== 0 ? (sd.drawlMWH / overallNegRaw) * 100 : 0;
-      sd.lossesInjectedUnits =
-        (doc.difference.diffInjectedUnits * sd.weightageGrossInjecting) / 100;
-      sd.inPercentageOfLossesInjectedUnits =
-        sd.grossInjectionMWH !== 0
-          ? (sd.lossesInjectedUnits / sd.grossInjectionMWH) * 100
-          : 0;
-      sd.lossesDrawlUnits =
-        (doc.difference.diffDrawlUnits * sd.weightageGrossDrawl) / 100;
-      sd.inPercentageOfLossesDrawlUnits =
-        sd.drawlMWH !== 0
-          ? (sd.lossesDrawlUnits / sd.drawlMWH) * 100
-          : 0;
-    }
+    // -------- Losses & weightages (stay on raw sub totals)
+    const overallPos = doc.subClient.reduce(
+      (a, s) => a + s.subClientsData.grossInjectionMWH,
+      0
+    );
+    const overallNeg = doc.subClient.reduce(
+      (a, s) => a + s.subClientsData.drawlMWH,
+      0
+    );
 
-    // 10) build global & per-discom N6
-    let sumPosE_global = 0;
-    let sumNegE_global = 0;
-    const perDiscomPosSums = {
-      DGVCL: 0,
-      MGVCL: 0,
-      PGVCL: 0,
-      UGVCL: 0,
-      TAECO: 0,
-      TSECO: 0,
-      TEL: 0,
-    };
+    doc.audit.subsPositiveSum = overallPos;
+    doc.audit.subsNegativeSum = overallNeg;
 
-    for (const sc of doc.subClient) {
-      const dName = (sc.discom || "").toUpperCase().trim();
-      for (const it of sc.subClientsData.subClientMeterData) {
-        const E = Number(it.redistributedToMain) || 0;
-        if (E > 0) {
-          sumPosE_global += E;
-          if (dName && perDiscomPosSums.hasOwnProperty(dName)) {
-            perDiscomPosSums[dName] += E;
-          }
-        } else if (E < 0) {
-          sumNegE_global += E;
-        }
-      }
-    }
+    doc.subClient.forEach((sc) => {
+      const d = sc.subClientsData;
 
-    const N6_global =
-      typeof SLDC_INJ === "number" && sumPosE_global !== 0
-        ? (sumPosE_global - SLDC_INJ) / sumPosE_global
-        : 0;
-    const P6_global =
-      typeof SLDC_DRW === "number" && sumNegE_global !== 0
-        ? (sumNegE_global - SLDC_DRW) / sumNegE_global
+      d.weightageGrossInjecting = overallPos ? (d.grossInjectionMWH / overallPos) * 100 : 0;
+      d.weightageGrossDrawl = overallNeg ? (d.drawlMWH / overallNeg) * 100 : 0;
+
+      d.lossesInjectedUnits = doc.difference.diffInjectedUnits * (d.weightageGrossInjecting / 100);
+      d.inPercentageOfLossesInjectedUnits = d.grossInjectionMWH
+        ? (d.lossesInjectedUnits / d.grossInjectionMWH) * 100
         : 0;
 
-    const perDiscomN6 = {};
-    for (const key of Object.keys(perDiscomPosSums)) {
-      const discomTot = perDiscomPosSums[key];
-      const discomTarget = DISCOM_VALUES[key];
-      if (
-        typeof discomTarget === "number" &&
-        discomTarget > 0 &&
-        discomTot !== 0
-      ) {
-        perDiscomN6[key] = (discomTot - discomTarget) / discomTot;
-      } else {
-        perDiscomN6[key] = N6_global;
-      }
-    }
+      d.lossesDrawlUnits = doc.difference.diffDrawlUnits * (d.weightageGrossDrawl / 100);
+      d.inPercentageOfLossesDrawlUnits = d.drawlMWH
+        ? (d.lossesDrawlUnits / d.drawlMWH) * 100
+        : 0;
 
-    doc.lossRates = {
-      injectionLossFraction_N6: N6_global,
-      drawlLossFraction_P6: P6_global,
-      perDiscomN6,
-    };
+      // part-clients proportional split
+      if (Array.isArray(d.partclient) && d.partclient.length) {
+        d.partclient.forEach((pc) => {
+          const pct = (pc.sharingPercentage || 0) / 100;
+          pc.grossInjectionMWH = d.grossInjectionMWH * pct;
+          pc.drawlMWH = d.drawlMWH * pct;
+          pc.netInjectionMWH = d.netInjectionMWH * pct;
 
-    // 10.d) apply per 15-min
-    let firstPosRefGlobal = null;
-    let firstNegRefGlobal = null;
-
-    for (const sc of doc.subClient) {
-      const dName = (sc.discom || "").toUpperCase().trim();
-      const posRateForThisSub =
-        dName && perDiscomN6.hasOwnProperty(dName)
-          ? perDiscomN6[dName]
-          : N6_global;
-
-      sc.subClientsData.grossInjectionMWHAfterLosses = 0;
-      sc.subClientsData.drawlMWHAfterLosses = 0;
-
-      for (let idx = 0; idx < sc.subClientsData.subClientMeterData.length; idx++) {
-        const it = sc.subClientsData.subClientMeterData[idx];
-        if (!it.date) {
-          it.netTotalAfterLosses = 0;
-          continue;
-        }
-
-        const E = Number(it.redistributedToMain) || 0;
-        let rate = 0;
-
-        if (E > 0) {
-          rate = posRateForThisSub;
-          if (firstPosRefGlobal === null) firstPosRefGlobal = { sc, idx };
-        } else if (E < 0) {
-          rate = P6_global;
-          if (firstNegRefGlobal === null) firstNegRefGlobal = { sc, idx };
-        }
-
-        const net = E - rate * E;
-        it.netTotalAfterLosses = net;
-
-        if (net > 0) sc.subClientsData.grossInjectionMWHAfterLosses += net;
-        else sc.subClientsData.drawlMWHAfterLosses += net;
-      }
-
-      sc.subClientsData.netInjectionMWHAfterLosses =
-        sc.subClientsData.grossInjectionMWHAfterLosses +
-        sc.subClientsData.drawlMWHAfterLosses;
-
-      // part clients after-loss
-      if (sc.subClientsData.partclient && sc.subClientsData.partclient.length > 0) {
-        sc.subClientsData.partclient.forEach((p) => {
-          p.grossInjectionMWHAfterLosses = 0;
-          p.drawlMWHAfterLosses = 0;
-          p.netInjectionMWHAfterLosses = 0;
-        });
-
-        for (const it of sc.subClientsData.subClientMeterData) {
-          it.partclient = sc.subClientsData.partclient.map((p) => {
-            const share = (p.sharingPercentage || 0) / 100;
-            const val = (it.netTotalAfterLosses || 0) * share;
-            return { divisionName: p.divisionName, netTotalAfterLosses: val };
-          });
-
-          it.partclient.forEach((pc, i) => {
-            if (pc.netTotalAfterLosses > 0)
-              sc.subClientsData.partclient[i].grossInjectionMWHAfterLosses +=
-                pc.netTotalAfterLosses;
-            else if (pc.netTotalAfterLosses < 0)
-              sc.subClientsData.partclient[i].drawlMWHAfterLosses +=
-                pc.netTotalAfterLosses;
-          });
-        }
-
-        sc.subClientsData.partclient.forEach((p) => {
-          p.netInjectionMWHAfterLosses =
-            p.grossInjectionMWHAfterLosses + p.drawlMWHAfterLosses;
+          pc.weightageGrossInjecting = d.weightageGrossInjecting * pct;
+          pc.weightageGrossDrawl = d.weightageGrossDrawl * pct;
+          pc.lossesInjectedUnits = d.lossesInjectedUnits * pct;
+          pc.inPercentageOfLossesInjectedUnits = d.inPercentageOfLossesInjectedUnits;
+          pc.lossesDrawlUnits = d.lossesDrawlUnits * pct;
+          pc.inPercentageOfLossesDrawlUnits = d.inPercentageOfLossesDrawlUnits;
         });
       }
-    }
+    });
 
-    // ===================== STEP 11: per-DISCOM residual snap =====================
-    // For each DISCOM for which the user sent a value, make sure the sum of
-    // (that discom's subclients netInjectionMWHAfterLosses) == discom value.
-    // We do exactly like Excel helper-3: push residual to first +ve interval of that discom.
+    // -------- Net after losses (per interval; sub intervals stay RAW, only % applied)
+    doc.subClient.forEach((sc) => {
+      const d = sc.subClientsData;
 
-    // 1) collect per-discom actual nets
-    const perDiscomActual = {
-      DGVCL: 0,
-      MGVCL: 0,
-      PGVCL: 0,
-      UGVCL: 0,
-      TAECO: 0,
-      TSECO: 0,
-      TEL: 0,
-    };
-    // 2) also collect "first +ve row" per discom to adjust
-    const perDiscomFirstPosRef = {
-      DGVCL: null,
-      MGVCL: null,
-      PGVCL: null,
-      UGVCL: null,
-      TAECO: null,
-      TSECO: null,
-      TEL: null,
-    };
+      let gAfter = 0;
+      let dAfter = 0;
 
-    for (const sc of doc.subClient) {
-      const dName = (sc.discom || "").toUpperCase().trim();
-      if (!dName || !perDiscomActual.hasOwnProperty(dName)) continue;
+      d.subClientMeterData.forEach((row) => {
+        const v = row.grossInjectedUnitsTotal; // RAW
+        const lossPct = v > 0 ? d.inPercentageOfLossesInjectedUnits : d.inPercentageOfLossesDrawlUnits;
+        const after = ((v * (lossPct / 100)) - v) * -1;
+        row.netTotalAfterLosses = after;
 
-      // add total positive of this sub-client
-      perDiscomActual[dName] += Math.max(
-        sc.subClientsData.grossInjectionMWHAfterLosses || 0,
-        0
-      );
+        if (after > 0) gAfter += after;
+        else dAfter += after;
+      });
 
-      // find first +ve interval inside this subclient (for this discom) if not set
-      if (perDiscomFirstPosRef[dName] === null) {
-        for (let idx = 0; idx < sc.subClientsData.subClientMeterData.length; idx++) {
-          const it = sc.subClientsData.subClientMeterData[idx];
-          if ((it.netTotalAfterLosses || 0) > 0) {
-            perDiscomFirstPosRef[dName] = { sc, idx };
-            break;
-          }
-        }
+      d.grossInjectionMWHAfterLosses = gAfter;
+      d.drawlMWHAfterLosses = dAfter;
+      d.netInjectionMWHAfterLosses = gAfter + dAfter;
+
+      if (Array.isArray(d.partclient) && d.partclient.length) {
+        d.partclient.forEach((pc) => {
+          const pct = (pc.sharingPercentage || 0) / 100;
+          pc.grossInjectionMWHAfterLosses = gAfter * pct;
+          pc.drawlMWHAfterLosses = dAfter * pct;
+          pc.netInjectionMWHAfterLosses =
+            pc.grossInjectionMWHAfterLosses + pc.drawlMWHAfterLosses;
+        });
       }
-    }
+    });
 
-    // 3) adjust per discom
-    for (const dKey of Object.keys(perDiscomActual)) {
-      const target = DISCOM_VALUES[dKey];
-      const actual = perDiscomActual[dKey];
-      const ref = perDiscomFirstPosRef[dKey];
-
-      // only if user sent value AND we have some data for that discom
-      if (typeof target === "number" && target > 0 && actual > 0 && ref) {
-        const residual = target - actual; // can be + or -
-        if (Math.abs(residual) > 1e-9) {
-          const { sc, idx } = ref;
-          const it = sc.subClientsData.subClientMeterData[idx];
-
-          it.netTotalAfterLosses += residual;
-          sc.subClientsData.grossInjectionMWHAfterLosses += residual;
-          sc.subClientsData.netInjectionMWHAfterLosses =
-            sc.subClientsData.grossInjectionMWHAfterLosses +
-            sc.subClientsData.drawlMWHAfterLosses;
-        }
-      }
-    }
-
-    // ===================== STEP 12: global residual (only for non-discom / drawl) =====================
-    // after per-discom is done, we can still align to SLDC if we want.
-    // This will be very small or zero when ALL subs are of a discom that had value.
-    let sumNetPosAfterDiscom = 0;
-    let sumNetNegAfterDiscom = 0;
-    for (const sc of doc.subClient) {
-      sumNetPosAfterDiscom += Math.max(
-        sc.subClientsData.grossInjectionMWHAfterLosses || 0,
-        0
-      );
-      sumNetNegAfterDiscom += Math.min(
-        sc.subClientsData.drawlMWHAfterLosses || 0,
-        0
-      );
-    }
-
-    const finalTargetPos =
-      typeof SLDC_INJ === "number" ? SLDC_INJ : sumNetPosAfterDiscom;
-    const finalTargetNeg =
-      typeof SLDC_DRW === "number" ? SLDC_DRW : sumNetNegAfterDiscom;
-
-    const finalPosResidual = finalTargetPos - sumNetPosAfterDiscom;
-    const finalNegResidual = finalTargetNeg - sumNetNegAfterDiscom;
-
-    if (Math.abs(finalPosResidual) > 1e-9 && firstPosRefGlobal) {
-      const { sc, idx } = firstPosRefGlobal;
-      const it = sc.subClientsData.subClientMeterData[idx];
-      it.netTotalAfterLosses += finalPosResidual;
-      sc.subClientsData.grossInjectionMWHAfterLosses += finalPosResidual;
-      sc.subClientsData.netInjectionMWHAfterLosses =
-        sc.subClientsData.grossInjectionMWHAfterLosses +
-        sc.subClientsData.drawlMWHAfterLosses;
-    }
-    if (Math.abs(finalNegResidual) > 1e-9 && firstNegRefGlobal) {
-      const { sc, idx } = firstNegRefGlobal;
-      const it = sc.subClientsData.subClientMeterData[idx];
-      it.netTotalAfterLosses += finalNegResidual;
-      sc.subClientsData.drawlMWHAfterLosses += finalNegResidual;
-      sc.subClientsData.netInjectionMWHAfterLosses =
-        sc.subClientsData.grossInjectionMWHAfterLosses +
-        sc.subClientsData.drawlMWHAfterLosses;
-    }
-
-    // 13) record SLDC
-    if (typeof SLDC_INJ === "number") doc.SLDCGROSSINJECTION = SLDC_INJ;
-    if (typeof SLDC_DRW === "number") doc.SLDCGROSSDRAWL = SLDC_DRW;
-    if (typeof SLDC_INJ === "number" || typeof SLDC_DRW === "number") {
+    // -------- SLDC info on main (already scaled)
+    if (approvedInjection != null) {
+      doc.SLDCGROSSINJECTION = approvedInjection;
       doc.mainClient.asperApprovedbySLDCGROSSINJECTION =
-        typeof SLDC_INJ === "number"
-          ? SLDC_INJ - doc.mainClient.grossInjectionMWH
-          : 0;
+        approvedInjection - doc.mainClient.grossInjectionMWH;
+    }
+    if (approvedDrawl != null) {
+      doc.SLDCGROSSDRAWL = approvedDrawl;
       doc.mainClient.asperApprovedbySLDCGROSSDRAWL =
-        typeof SLDC_DRW === "number"
-          ? SLDC_DRW - doc.mainClient.drawlMWH
-          : 0;
+        approvedDrawl - doc.mainClient.drawlMWH;
     }
 
-    // 14) save
-    await doc.save();
+    // -------- DISCOM reporting (NO scaling of subs)
+    const credited = {};
+    discomKeys.forEach((k) => {
+      const tot = doc.subClient
+        .filter((sc) => sc.discom === k)
+        .reduce((a, sc) => a + sc.subClientsData.grossInjectionMWH, 0);
+      credited[k] = round3(tot);
+    });
+    doc.perDiscomTotals = credited;
 
-    const allUsingCheck = [...clientsUsingCheckMeter, ...subsUsingCheck];
-    if (allUsingCheck.length) doc.clientsUsingCheckMeter = allUsingCheck;
+    const totalCredited = Object.values(credited).reduce((a, b) => a + b, 0);
+    const sldcApprovedInj = approvedInjection != null ? approvedInjection : totalCredited;
+
+    doc.excessInjectionPPA = round3(sldcApprovedInj - totalCredited);
+    doc.energyDrawnFromDiscom =
+      approvedDrawl != null ? pluckNumber(approvedDrawl, doc.mainClient.drawlMWH) : doc.mainClient.drawlMWH;
+
+    // Track check-meter usage
+    const allClientsUsingCheckMeter = [
+      ...clientsUsingCheckMeter,
+      ...subClientsUsingCheckMeter,
+    ];
+    if (allClientsUsingCheckMeter.length) {
+      doc.clientsUsingCheckMeter = allClientsUsingCheckMeter;
+    }
+
+    // Save & respond
+    await doc.save();
 
     return res.status(200).json({
       message: "Losses Calculation successfully completed.",
       data: doc,
-      ...(allUsingCheck.length > 0 && {
-        clientsUsingCheckMeter: allUsingCheck,
+      ...(allClientsUsingCheckMeter.length && {
+        clientsUsingCheckMeter: allClientsUsingCheckMeter,
       }),
     });
-  } catch (err) {
-    logger.error(`Error generating Losses Calculation Data: ${err.message}`);
+  } catch (error) {
+    logger?.error?.(`Error generating Losses Calculation Data: ${error.message}`);
     return res.status(500).json({
       message: "Error generating Losses Calculation Data",
-      error: err.message,
+      error: error.message,
     });
   }
-};
-
-
+}
 
 
 // Get latest 10 losses calculation reports
