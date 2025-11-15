@@ -1500,7 +1500,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         const grossInjection = partClient.grossInjectionMWHAfterLosses || 0;
         const drawl = partClient.drawlMWHAfterLosses || 0;
         const netInjection = grossInjection + drawl;
-        const weightage = grossInjectedValue > 0 ? (grossInjection / grossInjectedValue) * 100 : 0;
+        const weightage = totalGrossInjectedForGreenBox > 0 ? (grossInjection / totalGrossInjectedForGreenBox) * 100 : 0;
 
         // A: Sr No
         summarySheet.getCell(`A${currentRowNum}`).value = globalIndex++;
@@ -1599,8 +1599,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       const grossInjection = subClientData.grossInjectionMWHAfterLosses || 0;
       const drawl = subClientData.drawlMWHAfterLosses || 0;
       const netInjection = subClientData.netInjectionMWHAfterLosses || 0;
-      const weightage =
-        (netInjection / (lossesCalculationData.mainClient.netInjectionMWH || 1)) * 100 || 0;
+      const weightage = totalGrossInjectedForGreenBox > 0 ? (grossInjection / totalGrossInjectedForGreenBox) * 100 : 0;
 
       summarySheet.getCell(`A${currentRowNum}`).value = globalIndex++;
       summarySheet.getCell(`A${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle", wrapText: true };
