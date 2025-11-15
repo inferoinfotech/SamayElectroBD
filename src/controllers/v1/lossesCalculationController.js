@@ -2873,7 +2873,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         // CHECK-SUM MWH column - 4 decimal places (KWH removed from UI)
         const checkSumMWHCell = masterdataSheet.getCell(`${checkSumCol}${rowIndex}`);
         checkSumMWHCell.value = checkSumMWH;
-        checkSumMWHCell.numFmt = '0.0000';
+        checkSumMWHCell.numFmt = '0.00';
         checkSumMWHCell.font = { size: 10, name: 'Times New Roman' };
         checkSumMWHCell.alignment = { horizontal: 'center', vertical: 'middle' };
         // No border for CHECK-SUM column starting from row 14
