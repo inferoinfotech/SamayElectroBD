@@ -7,358 +7,119 @@ const PartClient = require('../../models/v1/partClient.model');
 const logger = require('../../utils/logger');  // Importing the logger
 const ExcelJS = require('exceljs');
 
+// Controller: generateLossesCalculation
+// Mirrors Excel logic end-to-end. Main client 15-min values follow your LET() formula:
+//   - Build baseline s = SUMIFS(Load Survey ...)
+//   - p = SUMIF(>0 of baseline), n = SUMIF(<0 of baseline)
+//   - f = 1 + IF(s<=0, (MAIN_ENTRY!L9 - n)/n, (MAIN_ENTRY!B9 - p)/p)  == (target / sum_by_sign)
+//   - main interval = s * f * (-SUMMARY!E12/1000)  -> mapped here as (AE * mf * pn)/1000 * f
 
-/**
- * Request body (new format):
- * {
- *   mainClientId: "....",
- *   month: 1,
- *   year: 2025,
- *   // optional legacy fallback:
- *   SLDCGROSSINJECTION: 356.889,
- *   SLDCGROSSDRAWL: -3.333,
- *   // MAIN ENTRY (preferred)
- *   mainEntry: {
- *     approvedInjection: 356.889, // B9
- *     approvedDrawl: -3.333,      // L9 (signed negative or positive? we handle as number)
- *     discom: {                   // C9..I9
- *       DGVCL: 356.883,
- *       MGVCL: 0,
- *       PGVCL: 0,
- *       UGVCL: 0,
- *       TAECO: 0,
- *       TSECO: 0,
- *       TEL: 0
- *     }
- *   }
- * }
- */
-// ====================== Losses Calculation Controller (TS/JS) ======================
+const parseOr = (val, fallback, { forbidZero = false } = {}) => {
+  const n = Number(val);
+  if (!Number.isFinite(n)) return fallback;
+  if (forbidZero && n === 0) return fallback;
+  return n;
+};
 
-// ====================== Losses Calculation Controller (TypeScript) ======================
+// Assumes models + logger available:
+// const { MainClient, SubClient, PartClient, MeterData, LossesCalculationData } = require('...');
+// const logger = require('...');
 
-// ---------- Helpers ----------
-function pluckNumber(v, def = null) {
-  if (v == null) return def;
-  if (typeof v === "number") return Number.isFinite(v) ? v : def;
-  const n = parseFloat(String(v).replace(/,/g, ""));
-  return Number.isFinite(n) ? n : def;
-}
-
-function round3(x) {
-  if (!Number.isFinite(x)) return 0;
-  return Number((Math.round((x + Number.EPSILON) * 1000) / 1000).toFixed(3));
-}
-
-function getParam(obj, ...keys) {
-  const src = obj || {};
-  for (const k of keys) if (src[k] != null) return src[k];
-
-  const lower = Object.create(null);
-  for (const k of Object.keys(src)) lower[k.toLowerCase()] = k;
-
-  for (const k of keys) {
-    const hit = lower[String(k).toLowerCase()];
-    if (hit && src[hit] != null) return src[hit];
-  }
-  return undefined;
-}
-
-function getActiveEnergy(entry) {
-  const p = entry?.parameters ?? {};
-  const candidates = [
-    "Bidirectional Active(I-E)",
-    "Bidirectional Active (I-E)",
-    "I-E",
-    "I - E",
-    "Net Active",
-    "NET ACTIVE",
-    "Net(ACTIVE)",
-    "Net (Active)",
-  ];
-  let val = getParam(p, ...candidates);
-  if (val == null) {
-    const k = Object.keys(p).find(
-      (k) => /active/i.test(k) && /(net|bidirectional|i-?e)/i.test(k)
-    );
-    if (k) val = p[k];
-  }
-  return pluckNumber(val);
-}
-
-function getDateStr(entry) {
-  return String(
-    getParam(entry?.parameters ?? {}, "Date", "DATE", "date") ?? ""
-  );
-}
-
-function getTimeStr(entry) {
-  return String(
-    getParam(
-      entry?.parameters ?? {},
-      "Interval Start",
-      "IntervalStart",
-      "Start Time",
-      "Time",
-      "START TIME"
-    ) ?? ""
-  );
-}
-
-// ---------- Controller ----------
-
-/**
- * Request body (new format):
- * {
- *   mainClientId: "....",
- *   month: 1,
- *   year: 2025,
- *   // optional legacy fallback:
- *   SLDCGROSSINJECTION: 356.889,
- *   SLDCGROSSDRAWL: -3.333,
- *   // MAIN ENTRY (preferred)
- *   mainEntry: {
- *     approvedInjection: 356.889, // B9
- *     approvedDrawl: -3.333,      // L9 (signed negative or positive? we handle as number)
- *     discom: {                   // C9..I9
- *       DGVCL: 356.883,
- *       MGVCL: 0,
- *       PGVCL: 0,
- *       UGVCL: 0,
- *       TAECO: 0,
- *       TSECO: 0,
- *       TEL: 0
- *     }
- *   }
- * }
- */
-// ====================== Losses Calculation Controller (TS/JS) ======================
-
-// ====================== Losses Calculation Controller (TypeScript) ======================
-
-// ---------- Helpers ----------
-function pluckNumber(v, def = null) {
-  if (v == null) return def;
-  if (typeof v === "number") return Number.isFinite(v) ? v : def;
-  const n = parseFloat(String(v).replace(/,/g, ""));
-  return Number.isFinite(n) ? n : def;
-}
-
-function round3(x) {
-  if (!Number.isFinite(x)) return 0;
-  return Number((Math.round((x + Number.EPSILON) * 1000) / 1000).toFixed(3));
-}
-
-function getParam(obj, ...keys) {
-  const src = obj || {};
-  for (const k of keys) if (src[k] != null) return src[k];
-
-  const lower = Object.create(null);
-  for (const k of Object.keys(src)) lower[k.toLowerCase()] = k;
-
-  for (const k of keys) {
-    const hit = lower[String(k).toLowerCase()];
-    if (hit && src[hit] != null) return src[hit];
-  }
-  return undefined;
-}
-
-function getActiveEnergy(entry) {
-  const p = entry?.parameters ?? {};
-  const candidates = [
-    "Bidirectional Active(I-E)",
-    "Bidirectional Active (I-E)",
-    "I-E",
-    "I - E",
-    "Net Active",
-    "NET ACTIVE",
-    "Net(ACTIVE)",
-    "Net (Active)",
-  ];
-  let val = getParam(p, ...candidates);
-  if (val == null) {
-    const k = Object.keys(p).find(
-      (k) => /active/i.test(k) && /(net|bidirectional|i-?e)/i.test(k)
-    );
-    if (k) val = p[k];
-  }
-  return pluckNumber(val);
-}
-
-function getDateStr(entry) {
-  return String(
-    getParam(entry?.parameters ?? {}, "Date", "DATE", "date") ?? ""
-  );
-}
-
-function getTimeStr(entry) {
-  return String(
-    getParam(
-      entry?.parameters ?? {},
-      "Interval Start",
-      "IntervalStart",
-      "Start Time",
-      "Time",
-      "START TIME"
-    ) ?? ""
-  );
-}
-
-// ---------- Controller ----------
 const generateLossesCalculation = async (req, res) => {
   try {
-    const {
-      mainClientId,
-      month,
-      year,
-      SLDCGROSSINJECTION,
-      SLDCGROSSDRAWL,
-      mainEntry, // { approvedInjection, approvedDrawl, discom: {...} }
-    } = req.body;
+    const { mainClientId, month, year } = req.body;
+
+    // SLDC monthly approved (SUMMARY!A8 positive, SUMMARY!K8 negative)
+    const SLDC_INJ = req.body.SLDCGROSSINJECTION;  // MAIN ENTRY!B9 equivalent (positive)
+    let   SLDC_DRW = req.body.SLDCGROSSDRAWL;      // MAIN ENTRY!L9 equivalent (negative)
+    if (typeof SLDC_DRW === 'number' && SLDC_DRW > 0) SLDC_DRW = -Math.abs(SLDC_DRW);
 
     if (!mainClientId || !month || !year) {
-      return res.status(400).json({
-        message: "Missing required parameters: mainClientId, month, year.",
-      });
+      return res.status(400).json({ message: "Missing required parameters: mainClientId, month, year." });
     }
 
-    // MAIN ENTRY / SLDC values
-    const approvedInjection =
-      mainEntry?.approvedInjection != null
-        ? pluckNumber(mainEntry.approvedInjection, null)
-        : SLDCGROSSINJECTION != null
-        ? pluckNumber(SLDCGROSSINJECTION, null)
-        : null;
-
-    const approvedDrawl =
-      mainEntry?.approvedDrawl != null
-        ? pluckNumber(mainEntry.approvedDrawl, null)
-        : SLDCGROSSDRAWL != null
-        ? pluckNumber(SLDCGROSSDRAWL, null)
-        : null;
-
-    const discomTargetsRaw = mainEntry?.discom || {};
-    const discomKeys = ["DGVCL", "MGVCL", "PGVCL", "UGVCL", "TAECO", "TSECO", "TEL"];
-    const discomTargets = Object.fromEntries(
-      discomKeys.map((k) => [k, pluckNumber(discomTargetsRaw[k], 0)])
-    );
-
-    // Existing doc reuse (if SLDC values match)
-    const existingCalculation = await LossesCalculationData.findOne({
-      mainClientId,
-      month,
-      year,
-      ...(approvedInjection !== null && {
-        SLDCGROSSINJECTION: approvedInjection,
-      }),
-      ...(approvedDrawl !== null && { SLDCGROSSDRAWL: approvedDrawl }),
+    // STEP 0: cache on SLDC inputs (legacy behavior)
+    const existing = await LossesCalculationData.findOne({
+      mainClientId, month, year,
+      ...(SLDC_INJ !== undefined && { SLDCGROSSINJECTION: SLDC_INJ }),
+      ...(SLDC_DRW !== undefined && { SLDCGROSSDRAWL: SLDC_DRW }),
     });
-    if (existingCalculation) {
-      existingCalculation.updatedAt = new Date();
-      await existingCalculation.save();
-      return res.status(200).json({
-        message: "Existing calculation data retrieved successfully.",
-        data: existingCalculation,
-      });
+    if (existing) {
+      existing.updatedAt = new Date();
+      await existing.save();
+      return res.status(200).json({ message: "Existing calculation data retrieved successfully.", data: existing });
     }
 
-    // Entities
+    // STEP 1: main client
     const mainClientData = await MainClient.findById(mainClientId);
-    if (!mainClientData) {
-      return res.status(404).json({ message: "Main Client not found" });
-    }
+    if (!mainClientData) return res.status(404).json({ message: "Main Client not found" });
 
+    // STEP 2: sub clients
     const subClients = await SubClient.find({ mainClient: mainClientId });
-    if (!subClients.length) {
-      return res.status(404).json({ message: "No Sub Clients found" });
-    }
+    if (!subClients.length) return res.status(404).json({ message: "No Sub Clients found" });
 
+    // STEP 2.1: part clients (ok if none)
     const partClientsData = {};
     await Promise.all(
-      subClients.map(async (s) => {
-        try {
-          partClientsData[s._id] = await PartClient.find({ subClient: s._id });
-        } catch (e) {
-          logger?.error?.(
-            `Error loading part-clients for ${s.name}: ${e.message}`
-          );
-          partClientsData[s._id] = [];
-        }
+      subClients.map(async (sc) => {
+        try { partClientsData[sc._id] = await PartClient.find({ subClient: sc._id }); }
+        catch { partClientsData[sc._id] = []; }
       })
     );
 
-    // Meter data
+    // STEP 3: meter data (fallback to check meter)
     const clientsUsingCheckMeter = [];
-    const subClientsUsingCheckMeter = [];
+    const subsUsingCheck = [];
 
     let mainClientMeterData = await MeterData.find({
-      meterNumber: mainClientData.abtMainMeter?.meterNumber,
-      month,
-      year,
+      meterNumber: mainClientData.abtMainMeter?.meterNumber, month, year
     });
+
     if (!mainClientMeterData.length && mainClientData.abtCheckMeter?.meterNumber) {
       mainClientMeterData = await MeterData.find({
-        meterNumber: mainClientData.abtCheckMeter.meterNumber,
-        month,
-        year,
+        meterNumber: mainClientData.abtCheckMeter.meterNumber, month, year
       });
       if (mainClientMeterData.length) clientsUsingCheckMeter.push(mainClientData.name);
     }
+
     if (!mainClientMeterData.length) {
       return res.status(400).json({
-        message:
-          "Meter data missing for Main Client. Both abtMainMeter and abtCheckMeter files are missing. Calculation cannot proceed.",
+        message: "Meter data missing for Main Client. Both abtMainMeter and abtCheckMeter files are missing."
       });
     }
 
     const subClientMeterData = {};
     const missingSubClientMeters = [];
     await Promise.all(
-      subClients.map(async (s) => {
+      subClients.map(async (sc) => {
         let data = await MeterData.find({
-          meterNumber: s.abtMainMeter?.meterNumber,
-          month,
-          year,
+          meterNumber: sc.abtMainMeter?.meterNumber, month, year
         });
-        if (!data.length && s.abtCheckMeter?.meterNumber) {
+
+        if (!data.length && sc.abtCheckMeter?.meterNumber) {
           data = await MeterData.find({
-            meterNumber: s.abtCheckMeter.meterNumber,
-            month,
-            year,
+            meterNumber: sc.abtCheckMeter.meterNumber, month, year
           });
-          if (data.length) subClientsUsingCheckMeter.push(s.name);
+          if (data.length) subsUsingCheck.push(sc.name);
         }
-        if (!data.length) missingSubClientMeters.push(s.name);
-        subClientMeterData[s._id] = data;
+
+        if (!data.length) missingSubClientMeters.push(sc.name);
+        subClientMeterData[sc._id] = data;
       })
     );
+
     if (missingSubClientMeters.length) {
       return res.status(400).json({
-        message: `Meter data missing for Sub Clients: ${missingSubClientMeters.join(
-          ", "
-        )}. Calculation cannot proceed.`,
+        message: `Meter data missing for Sub Clients: ${missingSubClientMeters.join(', ')}. Both abtMainMeter and abtCheckMeter files are missing.`
       });
     }
 
-    // Init doc
-    const doc = new LossesCalculationData({
-      mainClientId,
-      month,
-      year,
-      SLDCGROSSINJECTION: approvedInjection ?? undefined,
-      SLDCGROSSDRAWL: approvedDrawl ?? undefined,
-
-      DGVCL: Number.isFinite(discomTargets.DGVCL) ? discomTargets.DGVCL : undefined,
-      MGVCL: Number.isFinite(discomTargets.MGVCL) ? discomTargets.MGVCL : undefined,
-      PGVCL: Number.isFinite(discomTargets.PGVCL) ? discomTargets.PGVCL : undefined,
-      UGVCL: Number.isFinite(discomTargets.UGVCL) ? discomTargets.UGVCL : undefined,
-      TAECO: Number.isFinite(discomTargets.TAECO) ? discomTargets.TAECO : undefined,
-      TSECO: Number.isFinite(discomTargets.TSECO) ? discomTargets.TSECO : undefined,
-      TEL: Number.isFinite(discomTargets.TEL) ? discomTargets.TEL : undefined,
-
+    // STEP 4: init doc
+    let doc = new LossesCalculationData({
+      mainClientId, month, year,
       mainClient: {
         meterNumber: mainClientMeterData[0].meterNumber,
-        meterType: mainClientMeterData[0].meterType,
+        meterType:   mainClientMeterData[0].meterType,
         mainClientDetail: {
           name: mainClientData.name,
           subTitle: mainClientData.subTitle,
@@ -369,499 +130,332 @@ const generateLossesCalculation = async (req, res) => {
           dcCapacityKwp: mainClientData.dcCapacityKwp,
           noOfModules: mainClientData.noOfModules,
           ctptSrNo: mainClientData.ctptSrNo,
-          ctRatio: mainClientData.ctRatio,
-          ptRatio: mainClientData.ptRatio,
-          mf: mainClientData.mf,
+          ctRatio:   mainClientData.ctRatio,
+          ptRatio:   mainClientData.ptRatio,
+          mf:        mainClientData.mf,  // maps to SUMMARY!E12 in your sheet
           sharingPercentage: mainClientData.sharingPercentage,
           contactNo: mainClientData.contactNo,
-          email: mainClientData.email,
+          email:     mainClientData.email
         },
         grossInjectionMWH: 0,
-        drawlMWH: 0,
-        netInjectionMWH: 0,
-        mainClientMeterDetails: [],
+        drawlMWH:          0,
+        netInjectionMWH:   0,
+        mainClientMeterDetails: []
       },
-
       subClient: [],
       subClientoverall: { overallGrossInjectedUnits: 0, grossDrawlUnits: 0 },
-      difference: { diffInjectedUnits: 0, diffDrawlUnits: 0 },
-      audit: {},
+      difference: { diffInjectedUnits: 0, diffDrawlUnits: 0 }
     });
 
-    // MAIN raw
-    const mainPn = Number.isFinite(mainClientData.pn) ? mainClientData.pn : -1;
-    const mainMf = Number.isFinite(mainClientData.mf) ? mainClientData.mf : 1;
+    // STEP 5: MAIN baseline, then apply per-sign factor f like your LET() formula
+    // s_base = (AE * mf * pn)/1000  (this equals s * (-SUMMARY!E12/1000) with pn = -1)
+    const mainMF = parseOr(mainClientData.mf, 1, { forbidZero: true });
+    const mainPN = parseOr(mainClientData.pn, -1, { forbidZero: true }); // usually -1
 
-    let mainRawPos = 0;
-    let mainRawNeg = 0;
+    // 5a) First pass: compute baseline and collect p/n
+    const baseline = []; // store per-interval baseline before scaling
+    let pSum = 0; // Σ positive baseline
+    let nSum = 0; // Σ negative baseline
+    mainClientMeterData.forEach((meter) => {
+      meter.dataEntries.forEach((entry) => {
+        const rawAE = entry.parameters['Bidirectional Active(I-E)'] ?? entry.parameters['Net Active'];
+        const ae = parseOr(rawAE, NaN);
+        if (!Number.isFinite(ae)) return;
 
-    mainClientMeterData.forEach((m) => {
-      m.dataEntries.forEach((e) => {
-        const aE = getActiveEnergy(e);
-        if (!Number.isFinite(aE)) return;
-        const vRaw = (aE * mainMf * mainPn) / 1000;
-        const date = getDateStr(e);
-        const time = getTimeStr(e);
-
-        doc.mainClient.mainClientMeterDetails.push({
-          date,
+        const s_base = (ae * mainMF * mainPN) / 1000; // matches your -SUMMARY!E12/1000 sign/scale
+        const time = entry.parameters['Interval Start'];
+        const row = {
+          date: entry.parameters.Date,
           time,
-          grossInjectedUnitsTotal: vRaw,
-          helper: { raw: vRaw },
-        });
-
-        if (vRaw > 0) mainRawPos += vRaw;
-        else mainRawNeg += vRaw;
+          s_base
+        };
+        baseline.push(row);
+        if (s_base > 0) pSum += s_base;
+        else if (s_base < 0) nSum += s_base;
       });
     });
-    doc.audit.mainRaw = { pos: mainRawPos, neg: mainRawNeg };
 
-    // SUBS raw + helper.raw
-    for (const s of subClients) {
-      const data = subClientMeterData[s._id];
-      const sPn = Number.isFinite(s.pn) ? s.pn : -1;
-      const sMf = Number.isFinite(s.mf) ? s.mf : 1;
+    // 5b) Compute factors like f = 1 + (target - sum)/sum == target/sum
+    const fPos = (pSum !== 0 && typeof SLDC_INJ === 'number') ? (SLDC_INJ / pSum) : 1;
+    const fNeg = (nSum !== 0 && typeof SLDC_DRW === 'number') ? (SLDC_DRW / nSum) : 1;
 
-      const subBlock = {
-        name: s.name,
-        divisionName: s.divisionName,
-        consumerNo: s.consumerNo,
-        contactNo: s.contactNo,
-        email: s.email,
-        subClientId: s._id,
-        meterNumber: data[0].meterNumber,
-        meterType: data[0].meterType,
-        discom: s.discom,
-        voltageLevel: s.voltageLevel,
-        ctptSrNo: s.ctptSrNo,
-        ctRatio: s.ctRatio,
-        ptRatio: s.ptRatio,
-        mf: s.mf,
-        acCapacityKw: s.acCapacityKw,
+    // 5c) Second pass: write scaled values to doc.mainClient.mainClientMeterDetails
+    for (const row of baseline) {
+      const scaled =
+        row.s_base > 0 ? row.s_base * fPos :
+        row.s_base < 0 ? row.s_base * fNeg : 0;
+
+      doc.mainClient.mainClientMeterDetails.push({
+        date: row.date,
+        time: row.time,
+        grossInjectedUnitsTotal: scaled,   // final main per-interval (your HELPER TWO/THREE effect)
+        preSLDC: row.s_base,               // keep original baseline for audit if you want
+        scaleFactor: row.s_base > 0 ? fPos : (row.s_base < 0 ? fNeg : 1)
+      });
+
+      if (scaled > 0) doc.mainClient.grossInjectionMWH += scaled;
+      else if (scaled < 0) doc.mainClient.drawlMWH += scaled;
+    }
+
+    doc.mainClient.netInjectionMWH =
+      doc.mainClient.grossInjectionMWH + doc.mainClient.drawlMWH;
+
+    // === From here on, everything is identical to the last version you approved ===
+
+    // STEP 6: counters for sub totals (raw)
+    let overallPosRaw = 0;
+    let overallNegRaw = 0;
+
+    // STEP 7: build SUB client raw + redistribution keys
+    const mainByKey = new Map(); // date__time -> MAIN (after scale) for redistribution (HELPER!G)
+    for (const it of (doc.mainClient.mainClientMeterDetails || [])) {
+      const key = `${it.date}__${it.time}`;
+      mainByKey.set(key, Number(it.grossInjectedUnitsTotal) || 0);
+    }
+
+    for (const sc of subClients) {
+      const meterData = subClientMeterData[sc._id];
+      if (!meterData || !meterData.length) continue;
+
+      const { meterNumber, meterType } = meterData[0];
+
+      const scData = {
+        name: sc.name,
+        divisionName: sc.divisionName,
+        consumerNo: sc.consumerNo,
+        contactNo: sc.contactNo,
+        email:     sc.email,
+        subClientId: sc._id,
+        meterNumber, meterType,
+        discom: sc.discom,
+        voltageLevel: sc.voltageLevel,
+        ctptSrNo: sc.ctptSrNo,
+        ctRatio: sc.ctRatio,
+        ptRatio: sc.ptRatio,
+        mf: sc.mf,
+        acCapacityKw: sc.acCapacityKw,
         subClientsData: {
           grossInjectionMWH: 0,
           drawlMWH: 0,
           netInjectionMWH: 0,
-          grossInjectionMWHAfterLosses: 0,
-          drawlMWHAfterLosses: 0,
-          netInjectionMWHAfterLosses: 0,
+          subClientMeterData: [],
+          // legacy fields
           weightageGrossInjecting: 0,
           weightageGrossDrawl: 0,
           lossesInjectedUnits: 0,
           inPercentageOfLossesInjectedUnits: 0,
           lossesDrawlUnits: 0,
-          inPercentageOfLossesDrawlUnits: 0,
-          partclient: [],
-          subClientMeterData: [],
-        },
+          inPercentageOfLossesDrawlUnits: 0
+        }
       };
 
-      const pcs = partClientsData[s._id] || [];
-      if (pcs.length) {
-        subBlock.subClientsData.partclient = pcs.map((p) => ({
+      meterData.forEach((meter) => {
+        meter.dataEntries.forEach((entry) => {
+          const v = entry.parameters['Bidirectional Active(I-E)'] ?? entry.parameters['Net Active'];
+          if (v === undefined) return;
+          const Eraw = (v * sc.mf * sc.pn) / 1000;
+          const t = entry.parameters['Interval Start'];
+
+          scData.subClientsData.subClientMeterData.push({
+            date: entry.parameters.Date,
+            time: t,
+            grossInjectedUnitsTotal: Eraw, // raw sub
+            redistributedToMain: 0,         // will become E (Losses!E)
+            netTotalAfterLosses: 0
+          });
+
+          if (Eraw > 0) scData.subClientsData.grossInjectionMWH += Eraw;
+          else if (Eraw < 0) scData.subClientsData.drawlMWH      += Eraw;
+        });
+      });
+
+      scData.subClientsData.netInjectionMWH =
+        scData.subClientsData.grossInjectionMWH + scData.subClientsData.drawlMWH;
+
+      const parts = partClientsData[sc._id];
+      if (parts && parts.length) {
+        scData.subClientsData.partclient = parts.map((p) => ({
           divisionName: p.divisionName,
           consumerNo: p.consumerNo,
-          sharingPercentage: pluckNumber(p.sharingPercentage, 0),
-          grossInjectionMWHAfterLosses: 0,
-          drawlMWHAfterLosses: 0,
-          netInjectionMWHAfterLosses: 0,
+          sharingPercentage: Number(p.sharingPercentage),
           grossInjectionMWH: 0,
           drawlMWH: 0,
           netInjectionMWH: 0,
+          grossInjectionMWHAfterLosses: 0,
+          drawlMWHAfterLosses: 0,
+          netInjectionMWHAfterLosses: 0,
           weightageGrossInjecting: 0,
           weightageGrossDrawl: 0,
           lossesInjectedUnits: 0,
           inPercentageOfLossesInjectedUnits: 0,
           lossesDrawlUnits: 0,
-          inPercentageOfLossesDrawlUnits: 0,
+          inPercentageOfLossesDrawlUnits: 0
         }));
       }
 
-      data.forEach((m) => {
-        m.dataEntries.forEach((e) => {
-          const aE = getActiveEnergy(e);
-          if (!Number.isFinite(aE)) return;
+      doc.subClient.push(scData);
 
-          const v = (aE * sMf * sPn) / 1000;
-          const date = getDateStr(e);
-          const time = getTimeStr(e);
+      overallPosRaw += scData.subClientsData.grossInjectionMWH;
+      overallNegRaw += scData.subClientsData.drawlMWH;
+    }
 
-          subBlock.subClientsData.subClientMeterData.push({
-            date,
-            time,
-            grossInjectedUnitsTotal: v,
-            netTotalAfterLosses: 0,
-            partclient: [],
-            helper: { raw: v },
+    doc.subClientoverall.overallGrossInjectedUnits = overallPosRaw;
+    doc.subClientoverall.grossDrawlUnits           = overallNegRaw;
+
+    // STEP 7.1: proportional re-distribution to MAIN (HELPER!G → Losses!E)
+    const totalSubByKey = new Map();
+    for (const sc of doc.subClient) {
+      for (const it of sc.subClientsData.subClientMeterData) {
+        const key = `${it.date}__${it.time}`;
+        totalSubByKey.set(key, (totalSubByKey.get(key) || 0) + (Number(it.grossInjectedUnitsTotal) || 0));
+      }
+    }
+    for (const sc of doc.subClient) {
+      for (const it of sc.subClientsData.subClientMeterData) {
+        const key = `${it.date}__${it.time}`;
+        const mainV  = mainByKey.get(key)  ?? 0;
+        const subTot = totalSubByKey.get(key) ?? 0;
+        it.redistributedToMain = (subTot !== 0) ? (it.grossInjectedUnitsTotal * (mainV / subTot)) : 0;
+      }
+    }
+
+    // STEP 8: legacy differences (reporting vs main)
+    doc.difference.diffInjectedUnits = doc.subClientoverall.overallGrossInjectedUnits - doc.mainClient.grossInjectionMWH;
+    doc.difference.diffDrawlUnits    = doc.subClientoverall.grossDrawlUnits          - doc.mainClient.drawlMWH;
+
+    // STEP 9: legacy weightages
+    for (const sc of doc.subClient) {
+      const sd = sc.subClientsData;
+      sd.weightageGrossInjecting = overallPosRaw !== 0 ? (sd.grossInjectionMWH / overallPosRaw) * 100 : 0;
+      sd.weightageGrossDrawl     = overallNegRaw !== 0 ? (sd.drawlMWH / overallNegRaw) * 100 : 0;
+      sd.lossesInjectedUnits     = (doc.difference.diffInjectedUnits * sd.weightageGrossInjecting) / 100;
+      sd.inPercentageOfLossesInjectedUnits = sd.grossInjectionMWH !== 0 ? (sd.lossesInjectedUnits / sd.grossInjectionMWH) * 100 : 0;
+      sd.lossesDrawlUnits        = (doc.difference.diffDrawlUnits * sd.weightageGrossDrawl) / 100;
+      sd.inPercentageOfLossesDrawlUnits    = sd.drawlMWH !== 0 ? (sd.lossesDrawlUnits / sd.drawlMWH) * 100 : 0;
+    }
+
+    // STEP 10: N6/P6 on redistributed E with residual snap
+    let sumPosE = 0, sumNegE = 0;
+    for (const sc of doc.subClient) {
+      for (const it of sc.subClientsData.subClientMeterData) {
+        const E = Number(it.redistributedToMain) || 0;
+        if      (E > 0) sumPosE += E;
+        else if (E < 0) sumNegE += E;
+      }
+    }
+
+    const N6 = (typeof SLDC_INJ === 'number' && sumPosE !== 0) ? (sumPosE - SLDC_INJ) / sumPosE : 0;
+    const P6 = (typeof SLDC_DRW === 'number' && sumNegE !== 0) ? (sumNegE - SLDC_DRW) / sumNegE : 0;
+    doc.lossRates = { injectionLossFraction_N6: N6, drawlLossFraction_P6: P6 };
+
+    let firstPosRef = null, firstNegRef = null;
+
+    for (const sc of doc.subClient) {
+      sc.subClientsData.grossInjectionMWHAfterLosses = 0;
+      sc.subClientsData.drawlMWHAfterLosses = 0;
+
+      for (let idx = 0; idx < sc.subClientsData.subClientMeterData.length; idx++) {
+        const it = sc.subClientsData.subClientMeterData[idx];
+        if (!it.date) { it.netTotalAfterLosses = 0; continue; }
+
+        const E = Number(it.redistributedToMain) || 0;
+        const rate = (E > 0) ? N6 : (E < 0 ? P6 : 0);
+        const net = E - rate * E;
+
+        if (E > 0 && firstPosRef === null) firstPosRef = { sc, idx };
+        if (E < 0 && firstNegRef === null) firstNegRef = { sc, idx };
+
+        it.netTotalAfterLosses = net;
+        if (net > 0) sc.subClientsData.grossInjectionMWHAfterLosses += net;
+        else         sc.subClientsData.drawlMWHAfterLosses          += net;
+      }
+
+      sc.subClientsData.netInjectionMWHAfterLosses =
+        sc.subClientsData.grossInjectionMWHAfterLosses + sc.subClientsData.drawlMWHAfterLosses;
+
+      // part clients after-loss (safe if none)
+      if (sc.subClientsData.partclient && sc.subClientsData.partclient.length > 0) {
+        sc.subClientsData.partclient.forEach(p => {
+          p.grossInjectionMWHAfterLosses = 0;
+          p.drawlMWHAfterLosses = 0;
+          p.netInjectionMWHAfterLosses = 0;
+        });
+
+        for (const it of sc.subClientsData.subClientMeterData) {
+          it.partclient = sc.subClientsData.partclient.map(p => {
+            const share = (p.sharingPercentage || 0) / 100;
+            const val = (it.netTotalAfterLosses || 0) * share;
+            return { divisionName: p.divisionName, netTotalAfterLosses: val };
           });
 
-          if (v > 0) subBlock.subClientsData.grossInjectionMWH += v;
-          else subBlock.subClientsData.drawlMWH += v;
-        });
-      });
-
-      subBlock.subClientsData.netInjectionMWH =
-        subBlock.subClientsData.grossInjectionMWH +
-        subBlock.subClientsData.drawlMWH;
-
-      doc.subClient.push(subBlock);
-      doc.subClientoverall.overallGrossInjectedUnits +=
-        subBlock.subClientsData.grossInjectionMWH;
-      doc.subClientoverall.grossDrawlUnits +=
-        subBlock.subClientsData.drawlMWH;
-    }
-
-    // MAIN scaling by SLDC (fPos / fNeg)
-    let fPos = 1;
-    let fNeg = 1;
-    if (approvedInjection != null && mainRawPos !== 0)
-      fPos = approvedInjection / mainRawPos;
-    if (approvedDrawl != null && mainRawNeg !== 0)
-      fNeg = approvedDrawl / mainRawNeg;
-
-    doc.audit.mainScale = { fPos, fNeg };
-
-    let mainGrossAdj = 0;
-    let mainDrawlAdj = 0;
-    doc.mainClient.mainClientMeterDetails =
-      doc.mainClient.mainClientMeterDetails.map((row) => {
-        const v = row.helper?.raw ?? row.grossInjectedUnitsTotal;
-        const adj = v > 0 ? v * fPos : v * fNeg;
-        const next = { ...row, grossInjectedUnitsTotal: adj };
-        if (adj > 0) mainGrossAdj += adj;
-        else mainDrawlAdj += adj;
-        return next;
-      });
-    doc.mainClient.grossInjectionMWH = mainGrossAdj;
-    doc.mainClient.drawlMWH = mainDrawlAdj;
-    doc.mainClient.netInjectionMWH = mainGrossAdj + mainDrawlAdj;
-
-    // Differences main vs subs (raw on subs)
-    doc.difference.diffInjectedUnits =
-      doc.subClientoverall.overallGrossInjectedUnits -
-      doc.mainClient.grossInjectionMWH;
-    doc.difference.diffDrawlUnits =
-      doc.subClientoverall.grossDrawlUnits - doc.mainClient.drawlMWH;
-
-    // Monthly sums (raw)
-    const overallPos = doc.subClient.reduce(
-      (a, s) => a + s.subClientsData.grossInjectionMWH,
-      0
-    );
-    const overallNeg = doc.subClient.reduce(
-      (a, s) => a + s.subClientsData.drawlMWH,
-      0
-    );
-    doc.audit.subsPositiveSum = overallPos;
-    doc.audit.subsNegativeSum = overallNeg;
-
-    // ----- helper.allocatedGroup: interval allocation per main step -----
-    const mainByKey = new Map();
-    doc.mainClient.mainClientMeterDetails.forEach((row) => {
-      const key = `${row.date}__${row.time}`;
-      mainByKey.set(key, row.grossInjectedUnitsTotal);
-    });
-
-    const groups = new Map();
-    doc.subClient.forEach((sc) => {
-      sc.subClientsData.subClientMeterData.forEach((row) => {
-        const key = `${row.date}__${row.time}`;
-        let g = groups.get(key);
-        if (!g) {
-          g = { sumRaw: 0, rows: [] };
-          groups.set(key, g);
-        }
-        const raw = row.helper?.raw ?? row.grossInjectedUnitsTotal;
-        g.sumRaw += raw;
-        g.rows.push(row);
-      });
-    });
-
-    groups.forEach((g, key) => {
-      const s = g.sumRaw;
-      const target = mainByKey.get(key);
-
-      if (!Number.isFinite(s) || s === 0 || !Number.isFinite(target)) {
-        g.rows.forEach((row) => {
-          const raw = row.helper?.raw ?? row.grossInjectedUnitsTotal;
-          row.helper = row.helper || {};
-          row.helper.allocatedGroup = raw;
-          row.helper.discomScaled = raw;
-        });
-        return;
-      }
-
-      let sumAlloc = 0;
-      g.rows.forEach((row) => {
-        const raw = row.helper?.raw ?? row.grossInjectedUnitsTotal;
-        const alloc = raw + (raw / s) * (target - s);
-        row.helper = row.helper || {};
-        row.helper.allocatedGroup = alloc;
-        sumAlloc += alloc;
-      });
-
-      const delta = target - sumAlloc;
-      if (g.rows.length && Number.isFinite(delta) && Math.abs(delta) > 0) {
-        g.rows[0].helper.allocatedGroup += delta;
-      }
-    });
-
-    // ----- helper.discomScaled: per-sub scaling so sum(discomScaled) == sum(raw) -----
-    doc.subClient.forEach((sc) => {
-      const rows = sc.subClientsData.subClientMeterData;
-
-      let posE = 0;
-      let posF = 0;
-      const positiveRows = [];
-
-      rows.forEach((row) => {
-        const raw = row.helper?.raw ?? row.grossInjectedUnitsTotal;
-        const alloc =
-          row.helper?.allocatedGroup ??
-          row.helper?.raw ??
-          row.grossInjectedUnitsTotal;
-        if (raw > 0) {
-          posE += raw;
-          positiveRows.push(row);
-        }
-        if (alloc > 0) posF += alloc;
-      });
-
-      const scale = posF !== 0 ? posE / posF : 1;
-
-      let sumScaled = 0;
-      positiveRows.forEach((row) => {
-        const alloc =
-          row.helper?.allocatedGroup ??
-          row.helper?.raw ??
-          row.grossInjectedUnitsTotal;
-        const scaled = alloc * scale;
-        row.helper.discomScaled = scaled;
-        sumScaled += scaled;
-      });
-
-      if (positiveRows.length && posE !== 0) {
-        const delta = posE - sumScaled;
-        positiveRows[0].helper.discomScaled += delta;
-      }
-
-      rows.forEach((row) => {
-        const raw = row.helper?.raw ?? row.grossInjectedUnitsTotal;
-        if (!(raw > 0)) {
-          row.helper.discomScaled = raw;
-        }
-      });
-    });
-
-    // ----- Loss percentages & first pass after-losses -----
-    doc.subClient.forEach((sc) => {
-      const d = sc.subClientsData;
-
-      d.weightageGrossInjecting = overallPos
-        ? (d.grossInjectionMWH / overallPos) * 100
-        : 0;
-      d.weightageGrossDrawl = overallNeg
-        ? (d.drawlMWH / overallNeg) * 100
-        : 0;
-
-      d.lossesInjectedUnits =
-        doc.difference.diffInjectedUnits * (d.weightageGrossInjecting / 100);
-      d.lossesDrawlUnits =
-        doc.difference.diffDrawlUnits * (d.weightageGrossDrawl / 100);
-
-      d.inPercentageOfLossesInjectedUnits = d.grossInjectionMWH
-        ? (d.lossesInjectedUnits / d.grossInjectionMWH) * 100
-        : 0;
-      d.inPercentageOfLossesDrawlUnits = d.drawlMWH
-        ? (d.lossesDrawlUnits / d.drawlMWH) * 100
-        : 0;
-
-      if (Array.isArray(d.partclient) && d.partclient.length) {
-        d.partclient.forEach((pc) => {
-          const pct = (pc.sharingPercentage || 0) / 100;
-          pc.grossInjectionMWH = d.grossInjectionMWH * pct;
-          pc.drawlMWH = d.drawlMWH * pct;
-          pc.netInjectionMWH = d.netInjectionMWH * pct;
-
-          pc.weightageGrossInjecting = d.weightageGrossInjecting * pct;
-          pc.weightageGrossDrawl = d.weightageGrossDrawl * pct;
-          pc.lossesInjectedUnits = d.lossesInjectedUnits * pct;
-          pc.inPercentageOfLossesInjectedUnits =
-            d.inPercentageOfLossesInjectedUnits;
-          pc.lossesDrawlUnits = d.lossesDrawlUnits * pct;
-          pc.inPercentageOfLossesDrawlUnits =
-            d.inPercentageOfLossesDrawlUnits;
-        });
-      }
-    });
-
-    // First pass: per-row net after losses from percentages
-    doc.subClient.forEach((sc) => {
-      const d = sc.subClientsData;
-      let gAfter = 0;
-      let dAfter = 0;
-
-      d.subClientMeterData.forEach((row) => {
-        const v = row.grossInjectedUnitsTotal;
-        const lossPct =
-          v > 0
-            ? d.inPercentageOfLossesInjectedUnits
-            : d.inPercentageOfLossesDrawlUnits;
-        const after = ((v * (lossPct / 100)) - v) * -1;
-        row.netTotalAfterLosses = after;
-
-        if (after > 0) gAfter += after;
-        else dAfter += after;
-      });
-
-      d.grossInjectionMWHAfterLosses = gAfter;
-      d.drawlMWHAfterLosses = dAfter;
-      d.netInjectionMWHAfterLosses = gAfter + dAfter;
-
-      if (Array.isArray(d.partclient) && d.partclient.length) {
-        d.partclient.forEach((pc) => {
-          const pct = (pc.sharingPercentage || 0) / 100;
-          pc.grossInjectionMWHAfterLosses = gAfter * pct;
-          pc.drawlMWHAfterLosses = dAfter * pct;
-          pc.netInjectionMWHAfterLosses =
-            pc.grossInjectionMWHAfterLosses +
-            pc.drawlMWHAfterLosses;
-        });
-      }
-    });
-
-    // ------------------------------------------------------------------
-    // NEW STEP: Global DISCOM match on net (positive) units
-    // Sum of all positive netTotalAfterLosses across subs
-    //   = Sum of MAIN ENTRY discom targets (e.g. 356.883)
-    // ------------------------------------------------------------------
-    const sumDiscomTargetsPos = Object.values(discomTargets).reduce(
-      (acc, v) => (Number.isFinite(v) ? acc + v : acc),
-      0
-    );
-
-    let totalNetPos = 0;
-    doc.subClient.forEach((sc) => {
-      sc.subClientsData.subClientMeterData.forEach((row) => {
-        if (row.netTotalAfterLosses > 0) {
-          totalNetPos += row.netTotalAfterLosses;
-        }
-      });
-    });
-
-    if (sumDiscomTargetsPos > 0 && totalNetPos > 0) {
-      const scaleNet = sumDiscomTargetsPos / totalNetPos;
-      doc.audit = doc.audit || {};
-      doc.audit.discomNetScale = {
-        sumDiscomTargetsPos,
-        totalNetPos,
-        scaleNet,
-      };
-
-      // Apply scaling & recompute after-loss totals
-      doc.subClient.forEach((sc) => {
-        const d = sc.subClientsData;
-        let gAfter = 0;
-        let dAfter = 0;
-
-        d.subClientMeterData.forEach((row) => {
-          if (row.netTotalAfterLosses > 0) {
-            row.netTotalAfterLosses = row.netTotalAfterLosses * scaleNet;
-          }
-
-          if (row.netTotalAfterLosses > 0) gAfter += row.netTotalAfterLosses;
-          else dAfter += row.netTotalAfterLosses;
-        });
-
-        d.grossInjectionMWHAfterLosses = gAfter;
-        d.drawlMWHAfterLosses = dAfter;
-        d.netInjectionMWHAfterLosses = gAfter + dAfter;
-
-        // Keep part-clients consistent with final after-loss totals
-        if (Array.isArray(d.partclient) && d.partclient.length) {
-          d.partclient.forEach((pc) => {
-            const pct = (pc.sharingPercentage || 0) / 100;
-            pc.grossInjectionMWHAfterLosses = d.grossInjectionMWHAfterLosses * pct;
-            pc.drawlMWHAfterLosses = d.drawlMWHAfterLosses * pct;
-            pc.netInjectionMWHAfterLosses =
-              pc.grossInjectionMWHAfterLosses +
-              pc.drawlMWHAfterLosses;
+          it.partclient.forEach((pc, i) => {
+            if (pc.netTotalAfterLosses > 0)
+              sc.subClientsData.partclient[i].grossInjectionMWHAfterLosses += pc.netTotalAfterLosses;
+            else if (pc.netTotalAfterLosses < 0)
+              sc.subClientsData.partclient[i].drawlMWHAfterLosses += pc.netTotalAfterLosses;
           });
         }
-      });
-    }
 
-    // SLDC diffs
-    if (approvedInjection != null) {
-      doc.SLDCGROSSINJECTION = approvedInjection;
-      doc.mainClient.asperApprovedbySLDCGROSSINJECTION =
-        approvedInjection - doc.mainClient.grossInjectionMWH;
-    }
-    if (approvedDrawl != null) {
-      doc.SLDCGROSSDRAWL = approvedDrawl;
-      doc.mainClient.asperApprovedbySLDCGROSSDRAWL =
-        approvedDrawl - doc.mainClient.drawlMWH;
-    }
-
-    // ------------------------------------------------------------------
-    // DISCOM totals & Excess Injection PPA (match MAIN ENTRY sheet)
-    // We rely on mainEntry.discom for month totals:
-    //   perDiscomTotals[DGVCL] = 356.883, etc.
-    //   ExcessInjectionPPA = SLDCGROSSINJECTION - SUM(discomTargets)
-    // ------------------------------------------------------------------
-    const credited = {};
-    discomKeys.forEach((k) => {
-      const v = discomTargets[k]; // MAIN ENTRY J9 side
-      if (Number.isFinite(v)) {
-        credited[k] = round3(v);
+        sc.subClientsData.partclient.forEach(p => {
+          p.netInjectionMWHAfterLosses = p.grossInjectionMWHAfterLosses + p.drawlMWHAfterLosses;
+        });
       }
-    });
-    doc.perDiscomTotals = credited;
-
-    const totalCredited = Object.values(credited).reduce(
-      (a, b) => a + b,
-      0
-    );
-    const sldcApprovedInj =
-      approvedInjection != null ? approvedInjection : totalCredited;
-
-    doc.excessInjectionPPA = round3(sldcApprovedInj - totalCredited);
-
-    // Drawl side (just store energyDrawnFromDiscom)
-    doc.energyDrawnFromDiscom =
-      approvedDrawl != null
-        ? pluckNumber(approvedDrawl, doc.mainClient.drawlMWH)
-        : doc.mainClient.drawlMWH;
-
-    // Check-meter info
-    const allClientsUsingCheckMeter = [
-      ...clientsUsingCheckMeter,
-      ...subClientsUsingCheckMeter,
-    ];
-    if (allClientsUsingCheckMeter.length) {
-      doc.clientsUsingCheckMeter = allClientsUsingCheckMeter;
     }
 
+    // Residual snap to match SLDC exactly
+    let sumNetPos = 0, sumNetNeg = 0;
+    for (const sc of doc.subClient) {
+      sumNetPos += Math.max(sc.subClientsData.grossInjectionMWHAfterLosses || 0, 0);
+      sumNetNeg += Math.min(sc.subClientsData.drawlMWHAfterLosses || 0, 0);
+    }
+    const targetPos = (typeof SLDC_INJ === 'number') ? SLDC_INJ : sumNetPos;
+    const targetNeg = (typeof SLDC_DRW === 'number') ? SLDC_DRW : sumNetNeg;
+
+    const posResidual = targetPos - sumNetPos;
+    const negResidual = targetNeg - sumNetNeg;
+
+    if (Math.abs(posResidual) > 1e-9 && firstPosRef) {
+      const { sc, idx } = firstPosRef;
+      const it = sc.subClientsData.subClientMeterData[idx];
+      it.netTotalAfterLosses += posResidual;
+      sc.subClientsData.grossInjectionMWHAfterLosses += posResidual;
+      sc.subClientsData.netInjectionMWHAfterLosses =
+        sc.subClientsData.grossInjectionMWHAfterLosses + sc.subClientsData.drawlMWHAfterLosses;
+    }
+    if (Math.abs(negResidual) > 1e-9 && firstNegRef) {
+      const { sc, idx } = firstNegRef;
+      const it = sc.subClientsData.subClientMeterData[idx];
+      it.netTotalAfterLosses += negResidual;
+      sc.subClientsData.drawlMWHAfterLosses += negResidual;
+      sc.subClientsData.netInjectionMWHAfterLosses =
+        sc.subClientsData.grossInjectionMWHAfterLosses + sc.subClientsData.drawlMWHAfterLosses;
+    }
+
+    // STEP 12: record SLDC deltas vs MAIN baseline (intervals already correct)
+    if (typeof SLDC_INJ === 'number') doc.SLDCGROSSINJECTION = SLDC_INJ;
+    if (typeof SLDC_DRW === 'number') doc.SLDCGROSSDRAWL     = SLDC_DRW;
+    if (typeof SLDC_INJ === 'number' || typeof SLDC_DRW === 'number') {
+      doc.mainClient.asperApprovedbySLDCGROSSINJECTION = (typeof SLDC_INJ === 'number') ? (SLDC_INJ - doc.mainClient.grossInjectionMWH) : 0;
+      doc.mainClient.asperApprovedbySLDCGROSSDRAWL     = (typeof SLDC_DRW === 'number') ? (SLDC_DRW - doc.mainClient.drawlMWH) : 0;
+    }
+
+    // STEP 13: save + respond
     await doc.save();
 
+    const allUsingCheck = [...clientsUsingCheckMeter, ...subsUsingCheck];
+    if (allUsingCheck.length) doc.clientsUsingCheckMeter = allUsingCheck;
+
     return res.status(200).json({
-      message: "Losses Calculation successfully completed.",
+      message: 'Losses Calculation successfully completed.',
       data: doc,
-      ...(allClientsUsingCheckMeter.length && {
-        clientsUsingCheckMeter: allClientsUsingCheckMeter,
-      }),
+      ...(allUsingCheck.length > 0 && { clientsUsingCheckMeter: allUsingCheck })
     });
-  } catch (error) {
-    logger?.error?.(
-      `Error generating Losses Calculation Data: ${error.message}`
-    );
-    return res.status(500).json({
-      message: "Error generating Losses Calculation Data",
-      error: error.message,
-    });
+
+  } catch (err) {
+    logger.error(`Error generating Losses Calculation Data: ${err.message}`);
+    return res.status(500).json({ message: 'Error generating Losses Calculation Data', error: err.message });
   }
 };
-
 
 
 // Get latest 10 losses calculation reports
@@ -920,209 +514,328 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   const workbook = new ExcelJS.Workbook();
 
   const worksheetSetup = {
-    margins: { left: 0.2, right: 0.2, top: 0.2, bottom: 0.2, header: 0.2, footer: 0.2 },
+    margins: {
+      left: 0.2,
+      right: 0.2,
+      top: 0.2,
+      bottom: 0.2,
+      header: 0.2,
+      footer: 0.2
+    },
     horizontalCentered: true,
     verticalCentered: false,
     fitToPage: true,
     fitToWidth: 1,
     fitToHeight: 1,
-    paperSize: 9, // A4
+    paperSize: 9 // A4
   };
 
-  // Create SUMMARY sheet
-  const summarySheet = workbook.addWorksheet("SUMMARY");
+  // Create a First sheet for Summary Sheet
+  const summarySheet = workbook.addWorksheet('SUMMARY')
   summarySheet.pageSetup = worksheetSetup;
 
-  // Tab color
-  summarySheet.properties.tabColor = { argb: "FFFF00" };
+  // Set tab color (using exceljs)
+  summarySheet.properties.tabColor = {
+    argb: 'FFFF00' // This is green color in ARGB format (Alpha, Red, Green, Blue)
+  };
 
-  const month =
-    lossesCalculationData.month < 10
-      ? `0${lossesCalculationData.month}`
-      : lossesCalculationData.month;
-
+  const month = lossesCalculationData.month < 10 ? `0${lossesCalculationData.month}` : lossesCalculationData.month;
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const monthName = monthNames[lossesCalculationData.month - 1];
+  const monthName = monthNames[lossesCalculationData.month - 1]; // Adjusted for 0-based index
 
   // Prepare data rows
   const subClients = lossesCalculationData.subClient;
 
-  // Date helpers
-  const monthStr =
-    lossesCalculationData.month < 10
-      ? `0${lossesCalculationData.month}`
-      : lossesCalculationData.month.toString();
-
-  const lastDay = new Date(
+  // Calculate required date variables
+  const monthStr = lossesCalculationData.month < 10
+    ? `0${lossesCalculationData.month}`
+    : lossesCalculationData.month.toString();
+  const lastDays = new Date(
     lossesCalculationData.year,
     lossesCalculationData.month,
     0
   ).getDate();
 
-  // Column widths
+  const lastDay = new Date(lossesCalculationData.year, lossesCalculationData.month, 0).getDate();
+
+  // Set column widths as per the image
   summarySheet.columns = [
-    { width: 7 },   // A - Sr. No.
+    { width: 7 },  // A - Sr. No.
     { width: 30 },  // B - HT Consumer Name
     { width: 13 },  // C - HT Consumer No.
     { width: 22 },  // D - Wheeling Division Office/Location
     { width: 22 },  // E - Wheeling Discom
     { width: 22 },  // F - Project Capacity (kW) (AC)
-    { width: 22 },  // G - Share in Gross Injected Units to S/S (MWh)
-    { width: 22 },  // H - Share in Gross Drawl Units from S/S (MWh)
-    { width: 22 },  // I - Net Injected Units to S/S (MWh)
-    { width: 22 },  // J - % Weightage According to Gross Injecting
-    { width: 22 },  // K - Additional column
+    { width: 22 },  // G - Share in Gross Injected Units to Panetha S/S (MWh)
+    { width: 22 },  // H - Share in Gross Drawl Units from Panetha S/S (MWh)
+    { width: 22 },  // I - Net Injected Units to Panetha S/S (MWh)
+    { width: 22 }   // J - % Weightage According to Gross Injecting
   ];
 
-  // Helper for fixed 3-decimal text
+  // Helper function to display exact values
   const displayExactValue = (value) => {
-    if (value === undefined || value === null || isNaN(value)) return "0.000";
+    if (value === undefined || value === null || isNaN(value)) return '0.000';
+
+    // Convert to number and format to exactly 3 decimal places
     const numValue = Number(value);
-    return numValue.toLocaleString("en-US", {
+
+    // Handle cases where rounding might add extra decimals
+    const formattedValue = numValue.toLocaleString('en-US', {
       minimumFractionDigits: 3,
       maximumFractionDigits: 3,
-      useGrouping: false,
+      useGrouping: false // Don't add thousands separators
     });
+
+    return formattedValue;
   };
 
-  // Row 1 spacer
+  // Add blank row at the top
   summarySheet.getRow(1).height = 15;
 
-  // Last dynamic column (kept for future use)
-  const lastColumnForClients = String.fromCharCode(69 + lossesCalculationData.subClient.length);
-  const lastColumnForHeader = lastColumnForClients;
+  // Calculate the last column needed based on number of subclients
+  const lastColumnForClients = String.fromCharCode(69 + lossesCalculationData.subClient.length); // 69='E', +1 for main client
+  const lastColumnForHeader = lastColumnForClients; // Same as last client column
 
-  // Row 2: Titles
+  // Row 2: Title row with SUMMARY SHEET and Company Name
   const titleRow = summarySheet.getRow(2);
   titleRow.height = 42;
 
-  summarySheet.mergeCells("A2:B2");
-  const summaryTitleCell = summarySheet.getCell("A2");
-  summaryTitleCell.value = "SUMMARY SHEET";
-  summaryTitleCell.font = { bold: true, size: 16, name: "Times New Roman", color: { argb: "000000" } };
-  summaryTitleCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-  summaryTitleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "b4c6e7" } };
-  summaryTitleCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // SUMMARY SHEET cell - merge A2:C2
+  summarySheet.mergeCells('A2:C2');
+  const summaryTitleCell = summarySheet.getCell('A2');
+  summaryTitleCell.value = 'SUMMARY SHEET';
+  summaryTitleCell.font = { bold: true, size: 16, name: 'Times New Roman', color: { argb: '000000' } };
+  summaryTitleCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  summaryTitleCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFF00' } // Yellow background
+  };
+  summaryTitleCell.border = {
+    top: { style: 'medium' },
+    left: { style: 'medium' },
+    bottom: { style: 'medium' },
+    right: { style: 'medium' }
+  };
 
-  summarySheet.mergeCells("C2:K2");
-  const companyCellSummary = summarySheet.getCell("C2");
-  const acCapacityMwSummary = (
-    (lossesCalculationData.mainClient.mainClientDetail.acCapacityKw || 0) / 1000
-  ).toFixed(2);
+  // Company name cell - merge D2:J2
+  summarySheet.mergeCells('D2:J2');
+  const companyCellSummary = summarySheet.getCell('D2');
+  const acCapacityMwSummary = (lossesCalculationData.mainClient.mainClientDetail.acCapacityKw / 1000).toFixed(2);
   companyCellSummary.value = `${lossesCalculationData.mainClient.mainClientDetail.name.toUpperCase()} - ${acCapacityMwSummary} MW AC Generation Details`;
-  companyCellSummary.font = { bold: true, size: 16, name: "Times New Roman", color: { argb: "000000" } };
-  companyCellSummary.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-  companyCellSummary.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "b4c6e7" } };
-  companyCellSummary.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  companyCellSummary.font = { bold: true, size: 16, name: 'Times New Roman', color: { argb: '000000' } };
+  companyCellSummary.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  companyCellSummary.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFF00' } // Yellow background
+  };
+  companyCellSummary.border = {
+    top: { style: 'medium' },
+    left: { style: 'medium' },
+    bottom: { style: 'medium' },
+    right: { style: 'medium' }
+  };
 
-  // Row 3: Month
+  // Row 3: Month row
   const monthRow = summarySheet.getRow(3);
   monthRow.height = 30;
 
-  summarySheet.mergeCells("A3:E3");
-  const monthLabelCell = summarySheet.getCell("A3");
-  monthLabelCell.value = "Month";
-  monthLabelCell.font = { bold: true, size: 14, name: "Times New Roman", color: { argb: "FF0000" } };
-  monthLabelCell.alignment = { horizontal: "center", vertical: "middle" };
-  monthLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "b4c6e7" } };
-  monthLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Month label (merge A3:C3)
+  summarySheet.mergeCells('A3:C3');
+  const monthLabelCell = summarySheet.getCell('C3');
+  monthLabelCell.value = 'Month';
+  monthLabelCell.font = { bold: true, size: 14, name: 'Times New Roman', color: { argb: 'FF0000' } };
+  monthLabelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  monthLabelCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: '92D050' } // Green background
+  };
+  monthLabelCell.border = {
+    top: { style: 'medium' },
+    left: { style: 'medium' },
+    bottom: { style: 'medium' },
+    right: { style: 'medium' }
+  };
 
-  summarySheet.mergeCells("F3:K3");
-  const monthValueCell = summarySheet.getCell("F3");
+  // Month value (merge D3:J3)
+  summarySheet.mergeCells('D3:J3');
+  const monthValueCell = summarySheet.getCell('D3');
   monthValueCell.value = `${monthName}-${lossesCalculationData.year.toString().slice(-2)}`;
-  monthValueCell.font = { bold: true, size: 18, name: "Times New Roman", color: { argb: "FF0000" } };
-  monthValueCell.alignment = { horizontal: "center", vertical: "middle" };
-  monthValueCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "b4c6e7" } };
-  monthValueCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  monthValueCell.font = { bold: true, size: 18, name: 'Times New Roman', color: { argb: 'FF0000' } };
+  monthValueCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  monthValueCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: '92D050' } // Green background
+  };
+  monthValueCell.border = {
+    top: { style: 'medium' },
+    left: { style: 'medium' },
+    bottom: { style: 'medium' },
+    right: { style: 'medium' }
+  };
 
-  // Row 4: Generation Period
+  // Row 4: Generation Period row
   const periodRow = summarySheet.getRow(4);
   periodRow.height = 30;
 
-  summarySheet.mergeCells("A4:E4");
-  const periodLabelCell = summarySheet.getCell("A4");
-  periodLabelCell.value = "Generation Period";
-  periodLabelCell.font = { bold: true, size: 14, name: "Times New Roman", color: { argb: "FF0000" } };
-  periodLabelCell.alignment = { horizontal: "center", vertical: "middle" };
-  periodLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "b4c6e7" } };
-  periodLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Generation Period label (merge A4:C4 - changed from A4:D4)
+  summarySheet.mergeCells('A4:C4');
+  const periodLabelCell = summarySheet.getCell('A4'); // Changed from C4 to A4
+  periodLabelCell.value = 'Generation Period';
+  periodLabelCell.font = { bold: true, size: 14, name: 'Times New Roman', color: { argb: 'FF0000' } };
+  periodLabelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  periodLabelCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: '92D050' } // Green background
+  };
+  periodLabelCell.border = {
+    top: { style: 'medium' },
+    left: { style: 'medium' },
+    bottom: { style: 'medium' },
+    right: { style: 'medium' }
+  };
 
-  const periodEndColumn = "K";
-  summarySheet.mergeCells(`F4:${periodEndColumn}4`);
-  const periodValueCell = summarySheet.getCell("F4");
+  // Generation Period value (merge D4:J4)
+  const periodEndColumn = 'J';
+  summarySheet.mergeCells(`D4:${periodEndColumn}4`);
+  const periodValueCell = summarySheet.getCell('D4');
+
+  // Format dates as DD-MM-YYYY
   const startDate = `01-${monthStr}-${lossesCalculationData.year}`;
   const endDate = `${lastDay}-${monthStr}-${lossesCalculationData.year}`;
-  periodValueCell.value = `${startDate} to ${endDate}`;
-  periodValueCell.font = { bold: true, size: 18, name: "Times New Roman", color: { argb: "FF0000" } };
-  periodValueCell.alignment = { horizontal: "center", vertical: "middle" };
-  periodValueCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "b4c6e7" } };
-  periodValueCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
-  // Row 5: CPP header line
+  periodValueCell.value = `${startDate} to ${endDate}`;
+  periodValueCell.font = { bold: true, size: 18, name: 'Times New Roman', color: { argb: 'FF0000' } };
+  periodValueCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  periodValueCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: '92D050' } // Green background
+  };
+  periodValueCell.border = {
+    top: { style: 'medium' },
+    left: { style: 'medium' },
+    bottom: { style: 'medium' },
+    right: { style: 'medium' }
+  };
+  // Row 5: CPP CLIENTS header row - merge A5 to last column
   const cppRow = summarySheet.getRow(5);
   cppRow.height = 40;
-  summarySheet.mergeCells(`A5:K5`);
-  const cppCell = summarySheet.getCell("A5");
+  summarySheet.mergeCells(`A5:J5`);
+  const cppCell = summarySheet.getCell('A5');
   cppCell.value = `CPP CLIENTS - ${lossesCalculationData.mainClient.mainClientDetail.name.toUpperCase()} (Lead generator) SOLAR PLANT WITH INJECTION TO ${lossesCalculationData.mainClient.mainClientDetail.subTitle} AT 11kv, ABT METER: ${lossesCalculationData.mainClient.meterNumber}`;
-  cppCell.font = { bold: true, size: 12, name: "Times New Roman", color: { argb: "0000cc" } };
-  cppCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-  cppCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "b4c6e7" } };
-  cppCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  cppCell.font = { bold: true, size: 12, name: 'Times New Roman', color: { argb: '0000cc' } };
+  cppCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  cppCell.border = {
+    top: { style: 'medium' },
+    left: { style: 'medium' },
+    bottom: { style: 'medium' },
+    right: { style: 'medium' }
+  };
 
-  // Row 6: SLDC APPROVED strip
+  // Row 6: SLDC APPROVED header row
   const sldcRow = summarySheet.getRow(6);
   sldcRow.height = 70;
 
-  summarySheet.mergeCells("A6:B6");
-  const sldcLabelCell = summarySheet.getCell("A6");
-  sldcLabelCell.value = "SLDC APPROVED";
-  sldcLabelCell.font = { bold: true, size: 10, name: "Times New Roman" };
-  sldcLabelCell.alignment = { horizontal: "center", vertical: "middle" };
-  sldcLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "92D050" } };
-  sldcLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // SLDC APPROVED label - merge A6:B6
+  summarySheet.mergeCells('A6:B6');
+  const sldcLabelCell = summarySheet.getCell('A6');
+  sldcLabelCell.value = 'SLDC APPROVED';
+  sldcLabelCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  sldcLabelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  sldcLabelCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: '92D050' } // Green background
+  };
+  sldcLabelCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'medium' },
+    bottom: { style: 'medium' },
+    right: { style: 'thin' }
+  };
 
-  const totalLabelCell = summarySheet.getCell("C6");
-  totalLabelCell.value = "Total (MWh)";
-  totalLabelCell.font = { bold: true, size: 10, name: "Times New Roman" };
-  totalLabelCell.alignment = { horizontal: "center", vertical: "middle" };
-  totalLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "92D050" } };
-  totalLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Total (MWh) label - C6
+  const totalLabelCell = summarySheet.getCell('C6');
+  totalLabelCell.value = 'Total (MWh)';
+  totalLabelCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  totalLabelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  totalLabelCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: '92D050' } // Green background
+  };
+  totalLabelCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'medium' },
+    right: { style: 'thin' }
+  };
 
-  const feederLabelCell = summarySheet.getCell("D6");
-  feederLabelCell.value = "Feeder Name =>";
-  feederLabelCell.font = { bold: true, size: 10, name: "Times New Roman" };
-  feederLabelCell.alignment = { horizontal: "right", vertical: "middle", wrapText: true };
-  feederLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  feederLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Feeder Name label - D6
+  const feederLabelCell = summarySheet.getCell('D6');
+  feederLabelCell.value = 'Feeder Name =>';
+  feederLabelCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  feederLabelCell.alignment = { horizontal: 'right', vertical: 'middle' };
+  feederLabelCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'D9D9D9' }
+  };
+  feederLabelCell.border = {
+    top: { style: 'medium' },
+    left: { style: 'medium' },
+    bottom: { style: 'medium' },
+    right: { style: 'medium' }
+  };
 
-  const mainClientCell = summarySheet.getCell("E6");
+  // Main client cell - E6
+  const mainClientCell = summarySheet.getCell('E6');
   mainClientCell.value = `(Lead Generator)\n${lossesCalculationData.mainClient.mainClientDetail.name.toUpperCase()}`;
-  mainClientCell.font = { bold: true, size: 10, name: "Times New Roman" };
-  mainClientCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-  mainClientCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  mainClientCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  mainClientCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  mainClientCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  mainClientCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'D9D9D9' }
+  };
+  mainClientCell.border = {
+    top: { style: 'medium' },
+    left: { style: 'medium' },
+    bottom: { style: 'medium' },
+    right: { style: 'medium' }
+  };
 
+  // Create 5 subclient cells (F6 to J6)
   for (let i = 0; i < 5; i++) {
-    const col = String.fromCharCode(70 + i); // F..J
+    const col = String.fromCharCode(70 + i); // 70 is 'F'
     const cellRef = summarySheet.getCell(`${col}6`);
+
+    // If there's a subclient at this index, use its name, otherwise empty string
     cellRef.value = lossesCalculationData.subClient[i]
       ? lossesCalculationData.subClient[i].name.toUpperCase()
-      : "";
-    cellRef.font = { bold: true, size: 10, name: "Times New Roman" };
-    cellRef.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-    cellRef.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-    cellRef.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+      : '';
+
+    cellRef.font = { bold: true, size: 10, name: 'Times New Roman' };
+    cellRef.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cellRef.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'D9D9D9' }
+    };
+    cellRef.border = {
+      top: { style: 'medium' },
+      left: { style: 'medium' },
+      bottom: { style: 'medium' },
+      right: { style: 'medium' }
+    };
   }
 
-  // K6 blank cell
-  const k6Cell = summarySheet.getCell("K6");
-  k6Cell.value = "";
-  k6Cell.font = { bold: true, size: 10, name: "Times New Roman" };
-  k6Cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-  k6Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k6Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
-
-  // Totals (exact values)
+  // Calculate totals - using exact values from database
   const mainClientGrossInjection = lossesCalculationData.mainClient.grossInjectionMWH || 0;
   const mainClientDrawl = lossesCalculationData.mainClient.drawlMWH || 0;
   const mainClientNetInjection = mainClientGrossInjection + mainClientDrawl;
@@ -1137,460 +850,658 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   );
   const subClientNetInjection = subClientGrossInjection + subClientDrawl;
 
-  // Prefer SLDC if present
-  const grossInjectedValue =
-    lossesCalculationData.SLDCGROSSINJECTION !== undefined
-      ? lossesCalculationData.SLDCGROSSINJECTION
-      : mainClientGrossInjection;
+  // Use SLDC values if available, otherwise use calculated values
+  const grossInjectedValue = lossesCalculationData.SLDCGROSSINJECTION !== undefined
+    ? lossesCalculationData.SLDCGROSSINJECTION
+    : mainClientGrossInjection;
 
-  const grossDrawlValue =
-    lossesCalculationData.SLDCGROSSDRAWL !== undefined
-      ? lossesCalculationData.SLDCGROSSDRAWL
-      : mainClientDrawl;
+  const grossDrawlValue = lossesCalculationData.SLDCGROSSDRAWL !== undefined
+    ? lossesCalculationData.SLDCGROSSDRAWL
+    : mainClientDrawl;
 
   const netInjectedValue = grossInjectedValue + grossDrawlValue;
 
-  // Calculate totals (same as gray totals row) for green box
-  let totalGrossInjectedForGreenBox = 0;
-  let totalGrossDrawlForGreenBox = 0;
-  lossesCalculationData.subClient.forEach((subClient) => {
-    const sc = subClient.subClientsData || {};
-    if (sc.partclient && sc.partclient.length > 0) {
-      sc.partclient.forEach((pc) => {
-        totalGrossInjectedForGreenBox += pc.grossInjectionMWHAfterLosses || 0;
-        totalGrossDrawlForGreenBox += pc.drawlMWHAfterLosses || 0;
-      });
-    } else {
-      totalGrossInjectedForGreenBox += sc.grossInjectionMWHAfterLosses || 0;
-      totalGrossDrawlForGreenBox += sc.drawlMWHAfterLosses || 0;
-    }
-  });
-  const totalNetInjectedForGreenBox = totalGrossInjectedForGreenBox + totalGrossDrawlForGreenBox;
+  // Row 7: Gross Injected Units row
+  const grossInjectedRow = summarySheet.getRow(7);
+  grossInjectedRow.height = 45;
 
-  // Rows 7–12 (merged A/B/C blocks)
-  [7, 8, 9, 10, 11, 12].forEach((r) => (summarySheet.getRow(r).height = 45));
-  const greenFill = { type: "pattern", pattern: "solid", fgColor: { argb: "92D050" } };
-  const labelFont = { bold: true, size: 10, name: "Times New Roman" };
-  const valueFont = { bold: true, size: 10, name: "Times New Roman" };
-  const centerMid = { horizontal: "center", vertical: "middle" };
-  const leftMidWrap = { horizontal: "left", vertical: "middle", wrapText: true };
-  const thinBorder = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Gross Injected Units label - merge A7:B7
+  summarySheet.mergeCells('A7:B7');
+  const grossInjectedLabelCell = summarySheet.getCell('A7');
+  grossInjectedLabelCell.value = `Gross Injected Units to ${lossesCalculationData.mainClient.mainClientDetail.subTitle}`;
+  grossInjectedLabelCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  grossInjectedLabelCell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+  grossInjectedLabelCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: '92D050' } // Green background
+  };
+  grossInjectedLabelCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
+  };
 
-  // A7:B8 / C7:C8 - Gross Injected
-  summarySheet.mergeCells("A7:B8");
-  summarySheet.mergeCells("C7:C8");
-  const a7 = summarySheet.getCell("A7");
-  a7.value = `Gross Injected Units to ${lossesCalculationData.mainClient.mainClientDetail.subTitle}`;
-  a7.font = labelFont; a7.alignment = leftMidWrap; a7.fill = greenFill; a7.border = thinBorder;
-  const c7 = summarySheet.getCell("C7");
-  c7.value = displayExactValue(totalGrossInjectedForGreenBox);
-  c7.font = valueFont; c7.alignment = centerMid; c7.fill = greenFill; c7.border = thinBorder;
+  // Gross Injected Units value - C7
+  const grossInjectedValueCell = summarySheet.getCell('C7');
+  grossInjectedValueCell.value = displayExactValue(grossInjectedValue);
+  grossInjectedValueCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  grossInjectedValueCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  grossInjectedValueCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: '92D050' } // Green background
+  };
+  grossInjectedValueCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
+  };
 
-  // A9:B10 / C9:C10 - Gross Drawl
-  summarySheet.mergeCells("A9:B10");
-  summarySheet.mergeCells("C9:C10");
-  const a9 = summarySheet.getCell("A9");
-  a9.value = `Gross Drawl Units from ${lossesCalculationData.mainClient.mainClientDetail.subTitle}`;
-  a9.font = labelFont; a9.alignment = leftMidWrap; a9.fill = greenFill; a9.border = thinBorder;
-  const c9 = summarySheet.getCell("C9");
-  c9.value = displayExactValue(totalGrossDrawlForGreenBox);
-  c9.font = valueFont; c9.alignment = centerMid; c9.fill = greenFill; c9.border = thinBorder;
+  // ABT Main Meter label - D7
+  const abtMeterLabelCell = summarySheet.getCell('D7');
+  abtMeterLabelCell.value = 'ABT Main Meter Sr. No.';
+  abtMeterLabelCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  abtMeterLabelCell.alignment = { horizontal: 'right', vertical: 'middle', wrapText: true };
+  abtMeterLabelCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'D9D9D9' }
+  };
+  abtMeterLabelCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'medium' },
+    bottom: { style: 'thin' },
+    right: { style: 'medium' }
+  };
 
-  // A11:B12 / C11:C12 - Net Injected
-  summarySheet.mergeCells("A11:B12");
-  summarySheet.mergeCells("C11:C12");
-  const a11 = summarySheet.getCell("A11");
-  a11.value = `Net Injected Units to ${lossesCalculationData.mainClient.mainClientDetail.subTitle}`;
-  a11.font = labelFont; a11.alignment = leftMidWrap; a11.fill = greenFill; a11.border = thinBorder;
-  const c11 = summarySheet.getCell("C11");
-  c11.value = displayExactValue(totalNetInjectedForGreenBox);
-  c11.font = valueFont; c11.alignment = centerMid; c11.fill = greenFill; c11.border = thinBorder;
+  // Fixed layout for 5 meter cells (E7:I7)
+  const meterCells = [
+    { col: 'E7', value: lossesCalculationData.mainClient.meterNumber || '', bgColor: 'D9D9D9' }
+  ];
 
-  // D7..I12 detail strip (ABT/Voltage/CTPT/CT/PT/MF)
-  const abtMeterLabelCell = summarySheet.getCell("D7");
-  abtMeterLabelCell.value = "ABT Main Meter Sr. No.";
-  abtMeterLabelCell.font = { bold: true, size: 10, name: "Times New Roman" };
-  abtMeterLabelCell.alignment = { horizontal: "right", vertical: "middle", wrapText: true };
-  abtMeterLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  abtMeterLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
-
-  const meterCells = [{ col: "E7", value: lossesCalculationData.mainClient.meterNumber || "", bgColor: "D9D9D9" }];
+  // Add subclient meter numbers (up to 5 columns total)
   const maxSubClients = 5;
   for (let i = 0; i < maxSubClients; i++) {
-    const colChar = String.fromCharCode(69 + i + 1); // F..J
+    const colChar = String.fromCharCode(69 + i + 1); // Start from F (70)
+    const cellRef = `${colChar}7`;
+    const value = i < lossesCalculationData.subClient.length ?
+      lossesCalculationData.subClient[i].meterNumber || '' :
+      '';
+
     meterCells.push({
-      col: `${colChar}7`,
-      value: i < lossesCalculationData.subClient.length ? (lossesCalculationData.subClient[i].meterNumber || "") : "",
-      bgColor: "D9D9D9",
+      col: cellRef,
+      value: value,
+      bgColor: 'D9D9D9'
     });
   }
-  meterCells.forEach((m) => {
-    const cell = summarySheet.getCell(m.col);
-    cell.value = m.value;
-    cell.font = { bold: true, size: 10, name: "Times New Roman" };
-    cell.alignment = { horizontal: "center", vertical: "middle" };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: m.bgColor } };
-    cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+
+  // Apply formatting to all meter cells
+  meterCells.forEach(cell => {
+    const cellRef = summarySheet.getCell(cell.col);
+    cellRef.value = cell.value;
+    cellRef.font = { bold: true, size: 10, name: 'Times New Roman' };
+    cellRef.alignment = { horizontal: 'center', vertical: 'middle' };
+    cellRef.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: cell.bgColor }
+    };
+    cellRef.border = {
+      top: { style: 'thin' },
+      left: { style: 'medium' },
+      bottom: { style: 'thin' },
+      right: { style: 'medium' }
+    };
   });
 
-  // K7 blank cell
-  const k7Cell = summarySheet.getCell("K7");
-  k7Cell.value = "";
-  k7Cell.font = { bold: true, size: 10, name: "Times New Roman" };
-  k7Cell.alignment = { horizontal: "center", vertical: "middle" };
-  k7Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k7Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Row 8: Gross Drawl Units row
+  const grossDrawlRow = summarySheet.getRow(8);
+  grossDrawlRow.height = 45;
 
-  const voltageLabelCell = summarySheet.getCell("D8");
-  voltageLabelCell.value = "Voltage Level";
-  voltageLabelCell.font = { bold: true, size: 10, name: "Times New Roman" };
-  voltageLabelCell.alignment = { horizontal: "right", vertical: "middle", wrapText: true };
-  voltageLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  voltageLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Gross Drawl Units label - merge A8:B8
+  summarySheet.mergeCells('A8:B8');
+  const grossDrawlLabelCell = summarySheet.getCell('A8');
+  grossDrawlLabelCell.value = `Gross Drawl Units from ${lossesCalculationData.mainClient.mainClientDetail.subTitle}`;
+  grossDrawlLabelCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  grossDrawlLabelCell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+  grossDrawlLabelCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: '92D050' } // Green background
+  };
+  grossDrawlLabelCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
+  };
 
-  const voltageCells = [{ col: "E8", value: lossesCalculationData.mainClient.mainClientDetail.voltageLevel || "", bgColor: "D9D9D9" }];
+  // Gross Drawl Units value - C8
+  const grossDrawlValueCell = summarySheet.getCell('C8');
+  grossDrawlValueCell.value = displayExactValue(grossDrawlValue);
+  grossDrawlValueCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  grossDrawlValueCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  grossDrawlValueCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: '92D050' } // Green background
+  };
+  grossDrawlValueCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'medium' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
+  };
+
+  // Voltage Level label - D8
+  const voltageLabelCell = summarySheet.getCell('D8');
+  voltageLabelCell.value = 'Voltage Level';
+  voltageLabelCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  voltageLabelCell.alignment = { horizontal: 'right', vertical: 'middle', wrapText: true };
+  voltageLabelCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'D9D9D9' }
+  };
+  voltageLabelCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'medium' },
+    bottom: { style: 'thin' },
+    right: { style: 'medium' }
+  };
+
+  // Fixed layout for voltage level cells (E8:I8)
+  const voltageCells = [
+    { col: 'E8', value: lossesCalculationData.mainClient.mainClientDetail.voltageLevel || '', bgColor: 'D9D9D9' }
+  ];
+
+  // Add subclient voltage levels (up to 5 columns total)
   for (let i = 0; i < maxSubClients; i++) {
-    const colChar = String.fromCharCode(69 + i + 1);
+    const colChar = String.fromCharCode(69 + i + 1); // Start from F (70)
+    const cellRef = `${colChar}8`;
+    const value = i < lossesCalculationData.subClient.length ?
+      lossesCalculationData.subClient[i].voltageLevel || '' :
+      '';
+
     voltageCells.push({
-      col: `${colChar}8`,
-      value: i < lossesCalculationData.subClient.length ? (lossesCalculationData.subClient[i].voltageLevel || "") : "",
-      bgColor: "D9D9D9",
+      col: cellRef,
+      value: value,
+      bgColor: 'D9D9D9'
     });
   }
-  voltageCells.forEach((v) => {
-    const cell = summarySheet.getCell(v.col);
-    cell.value = v.value;
-    cell.font = { size: 10, name: "Times New Roman" };
-    cell.alignment = { horizontal: "center", vertical: "middle" };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: v.bgColor } };
-    cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+
+  // Apply formatting to all voltage cells
+  voltageCells.forEach(cell => {
+    const cellRef = summarySheet.getCell(cell.col);
+    cellRef.value = cell.value;
+    cellRef.font = { size: 10, name: 'Times New Roman' };
+    cellRef.alignment = { horizontal: 'center', vertical: 'middle' };
+    cellRef.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: cell.bgColor }
+    };
+    cellRef.border = {
+      top: { style: 'thin' },
+      left: { style: 'medium' },
+      bottom: { style: 'thin' },
+      right: { style: 'medium' }
+    };
   });
 
-  // K8 blank cell
-  const k8Cell = summarySheet.getCell("K8");
-  k8Cell.value = "";
-  k8Cell.font = { size: 10, name: "Times New Roman" };
-  k8Cell.alignment = { horizontal: "center", vertical: "middle" };
-  k8Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k8Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Row 9: Net Injected Units row
+  const netInjectedRow = summarySheet.getRow(9);
+  netInjectedRow.height = 45;
 
-  const ctptLabelCell = summarySheet.getCell("D9");
-  ctptLabelCell.value = "CTPT Sr.No.";
-  ctptLabelCell.font = { bold: true, size: 10, name: "Times New Roman" };
-  ctptLabelCell.alignment = { horizontal: "right", vertical: "middle" };
-  ctptLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  ctptLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Net Injected Units label - merge A9:B9
+  summarySheet.mergeCells('A9:B9');
+  const netInjectedLabelCell = summarySheet.getCell('A9');
+  netInjectedLabelCell.value = `Net Injected Units to ${lossesCalculationData.mainClient.mainClientDetail.subTitle}`;
+  netInjectedLabelCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  netInjectedLabelCell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+  netInjectedLabelCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: '92D050' } // Green background
+  };
+  netInjectedLabelCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
+  };
 
-  const ctptCells = [{ col: "E9", value: lossesCalculationData.mainClient.mainClientDetail.ctptSrNo || "", bgColor: "D9D9D9" }];
+  // Net Injected Units value - C9
+  const netInjectedValueCell = summarySheet.getCell('C9');
+  netInjectedValueCell.value = displayExactValue(netInjectedValue);
+  netInjectedValueCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  netInjectedValueCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  netInjectedValueCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: '92D050' } // Green background
+  };
+  netInjectedValueCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'medium' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
+  };
+
+  // CTPT Sr.No. label - D9
+  const ctptLabelCell = summarySheet.getCell('D9');
+  ctptLabelCell.value = 'CTPT Sr.No.';
+  ctptLabelCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  ctptLabelCell.alignment = { horizontal: 'right', vertical: 'middle' };
+  ctptLabelCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'D9D9D9' }
+  };
+  ctptLabelCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'medium' },
+    bottom: { style: 'thin' },
+    right: { style: 'medium' }
+  };
+
+  // Fixed layout for CTPT cells (E9:I9)
+  const ctptCells = [
+    { col: 'E9', value: lossesCalculationData.mainClient.mainClientDetail.ctptSrNo || '', bgColor: 'D9D9D9' }
+  ];
+
+  // Add subclient CTPT numbers (up to 5 columns total)
   for (let i = 0; i < maxSubClients; i++) {
-    const colChar = String.fromCharCode(69 + i + 1);
+    const colChar = String.fromCharCode(69 + i + 1); // Start from F (70)
+    const cellRef = `${colChar}9`;
+    const value = i < lossesCalculationData.subClient.length ?
+      lossesCalculationData.subClient[i].ctptSrNo || '' :
+      '';
+
     ctptCells.push({
-      col: `${colChar}9`,
-      value: i < lossesCalculationData.subClient.length ? (lossesCalculationData.subClient[i].ctptSrNo || "") : "",
-      bgColor: "D9D9D9",
+      col: cellRef,
+      value: value,
+      bgColor: 'D9D9D9'
     });
   }
-  ctptCells.forEach((v) => {
-    const cell = summarySheet.getCell(v.col);
-    cell.value = v.value;
-    cell.font = { size: 10, name: "Times New Roman" };
-    cell.alignment = { horizontal: "center", vertical: "middle" };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: v.bgColor } };
-    cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+
+  // Apply formatting to all CTPT cells
+  ctptCells.forEach(cell => {
+    const cellRef = summarySheet.getCell(cell.col);
+    cellRef.value = cell.value;
+    cellRef.font = { size: 10, name: 'Times New Roman' };
+    cellRef.alignment = { horizontal: 'center', vertical: 'middle' };
+    cellRef.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: cell.bgColor }
+    };
+    cellRef.border = {
+      top: { style: 'thin' },
+      left: { style: 'medium' },
+      bottom: { style: 'thin' },
+      right: { style: 'medium' }
+    };
   });
 
-  // K9 blank cell
-  const k9Cell = summarySheet.getCell("K9");
-  k9Cell.value = "";
-  k9Cell.font = { size: 10, name: "Times New Roman" };
-  k9Cell.alignment = { horizontal: "center", vertical: "middle" };
-  k9Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k9Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Row 10: Overall Percentage Distributions row
+  const percentageRow = summarySheet.getRow(10);
+  percentageRow.height = 45;
 
-  const ctRatioLabelCell = summarySheet.getCell("D10");
-  ctRatioLabelCell.value = "CT Ratio (A/A)";
-  ctRatioLabelCell.font = { bold: true, size: 10, name: "Times New Roman" };
-  ctRatioLabelCell.alignment = { horizontal: "right", vertical: "middle" };
-  ctRatioLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  ctRatioLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Overall Percentage Distributions label - merge A10:C10
+  summarySheet.mergeCells('A10:C10');
+  const percentageLabelCell = summarySheet.getCell('A10');
+  percentageLabelCell.value = 'Overall Percentage Distributions';
+  percentageLabelCell.font = { bold: true, size: 11, name: 'Times New Roman' };
+  percentageLabelCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  percentageLabelCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFF00' } // Yellow background
+  };
+  percentageLabelCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
+  };
 
-  const ctRatioCells = [{ col: "E10", value: lossesCalculationData.mainClient.mainClientDetail.ctRatio || "", bgColor: "D9D9D9" }];
+  // CT Ratio label - D10
+  const ctRatioLabelCell = summarySheet.getCell('D10');
+  ctRatioLabelCell.value = 'CT Ratio (A/A)';
+  ctRatioLabelCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  ctRatioLabelCell.alignment = { horizontal: 'right', vertical: 'middle' };
+  ctRatioLabelCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'D9D9D9' }
+  };
+  ctRatioLabelCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'medium' },
+    bottom: { style: 'thin' },
+    right: { style: 'medium' }
+  };
+
+  // Fixed layout for CT Ratio cells (E10:I10)
+  const ctRatioCells = [
+    { col: 'E10', value: lossesCalculationData.mainClient.mainClientDetail.ctRatio || '', bgColor: 'D9D9D9' }
+  ];
+
+  // Add subclient CT Ratios (up to 5 columns total)
   for (let i = 0; i < maxSubClients; i++) {
-    const colChar = String.fromCharCode(69 + i + 1);
+    const colChar = String.fromCharCode(69 + i + 1); // Start from F (70)
+    const cellRef = `${colChar}10`;
+    const value = i < lossesCalculationData.subClient.length ?
+      lossesCalculationData.subClient[i].ctRatio || '' :
+      '';
+
     ctRatioCells.push({
-      col: `${colChar}10`,
-      value: i < lossesCalculationData.subClient.length ? (lossesCalculationData.subClient[i].ctRatio || "") : "",
-      bgColor: "D9D9D9",
+      col: cellRef,
+      value: value,
+      bgColor: 'D9D9D9'
     });
   }
-  ctRatioCells.forEach((v) => {
-    const cell = summarySheet.getCell(v.col);
-    cell.value = v.value;
-    cell.font = { size: 10, name: "Times New Roman" };
-    cell.alignment = { horizontal: "center", vertical: "middle" };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: v.bgColor } };
-    cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+
+  // Apply formatting to all CT Ratio cells
+  ctRatioCells.forEach(cell => {
+    const cellRef = summarySheet.getCell(cell.col);
+    cellRef.value = cell.value;
+    cellRef.font = { size: 10, name: 'Times New Roman' };
+    cellRef.alignment = { horizontal: 'center', vertical: 'middle' };
+    cellRef.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: cell.bgColor }
+    };
+    cellRef.border = {
+      top: { style: 'thin' },
+      left: { style: 'medium' },
+      bottom: { style: 'thin' },
+      right: { style: 'medium' }
+    };
   });
 
-  // K10 blank cell
-  const k10Cell = summarySheet.getCell("K10");
-  k10Cell.value = "";
-  k10Cell.font = { size: 10, name: "Times New Roman" };
-  k10Cell.alignment = { horizontal: "center", vertical: "middle" };
-  k10Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k10Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Row 11: Discom row
+  const discomRow = summarySheet.getRow(11);
+  discomRow.height = 45;
 
-  const ptRatioLabelCell = summarySheet.getCell("D11");
-  ptRatioLabelCell.value = "PT Ratio (V/V)";
-  ptRatioLabelCell.font = { bold: true, size: 10, name: "Times New Roman" };
-  ptRatioLabelCell.alignment = { horizontal: "right", vertical: "middle" };
-  ptRatioLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  ptRatioLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Discom label - merge A11:B11
+  summarySheet.mergeCells('A11:B11');
+  const discomLabelCell = summarySheet.getCell('A11');
+  discomLabelCell.value = 'DISCOM (%)';
+  discomLabelCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  discomLabelCell.alignment = { horizontal: 'left', vertical: 'middle' };
+  discomLabelCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFF00' } // Yellow background
+  };
+  discomLabelCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
+  };
 
-  const ptRatioCells = [{ col: "E11", value: lossesCalculationData.mainClient.mainClientDetail.ptRatio || "", bgColor: "D9D9D9" }];
+  // Discom value - C11
+  const discomValueCell = summarySheet.getCell('C11');
+  discomValueCell.value = 'DGVCL 100 %';
+  discomValueCell.font = { bold: true, size: 10, name: 'Times New Roman', color: { argb: 'FF0000' } };
+  discomValueCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  discomValueCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFF00' } // Yellow background
+  };
+  discomValueCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'medium' },
+    bottom: { style: 'medium' },
+    right: { style: 'medium' }
+  };
+
+  // PT Ratio label - D11
+  const ptRatioLabelCell = summarySheet.getCell('D11');
+  ptRatioLabelCell.value = 'PT Ratio (V/V)';
+  ptRatioLabelCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  ptRatioLabelCell.alignment = { horizontal: 'right', vertical: 'middle' };
+  ptRatioLabelCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'D9D9D9' }
+  };
+  ptRatioLabelCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
+  };
+
+  // Fixed layout for PT Ratio cells (E11:I11)
+  const ptRatioCells = [
+    { col: 'E11', value: lossesCalculationData.mainClient.mainClientDetail.ptRatio || '', bgColor: 'D9D9D9' }
+  ];
+
+  // Add subclient PT Ratios (up to 5 columns total)
   for (let i = 0; i < maxSubClients; i++) {
-    const colChar = String.fromCharCode(69 + i + 1);
+    const colChar = String.fromCharCode(69 + i + 1); // Start from F (70)
+    const cellRef = `${colChar}11`;
+    const value = i < lossesCalculationData.subClient.length ?
+      lossesCalculationData.subClient[i].ptRatio || '' :
+      '';
+
     ptRatioCells.push({
-      col: `${colChar}11`,
-      value: i < lossesCalculationData.subClient.length ? (lossesCalculationData.subClient[i].ptRatio || "") : "",
-      bgColor: "D9D9D9",
+      col: cellRef,
+      value: value,
+      bgColor: 'D9D9D9'
     });
   }
-  ptRatioCells.forEach((v) => {
-    const cell = summarySheet.getCell(v.col);
-    cell.value = v.value;
-    cell.font = { size: 10, name: "Times New Roman" };
-    cell.alignment = { horizontal: "center", vertical: "middle" };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: v.bgColor } };
-    cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+
+  // Apply formatting to all PT Ratio cells
+  ptRatioCells.forEach(cell => {
+    const cellRef = summarySheet.getCell(cell.col);
+    cellRef.value = cell.value;
+    cellRef.font = { size: 10, name: 'Times New Roman' };
+    cellRef.alignment = { horizontal: 'center', vertical: 'middle' };
+    cellRef.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: cell.bgColor }
+    };
+    cellRef.border = {
+      top: { style: 'thin' },
+      left: { style: 'medium' },
+      bottom: { style: 'thin' },
+      right: { style: 'medium' }
+    };
   });
 
-  // K11 blank cell
-  const k11Cell = summarySheet.getCell("K11");
-  k11Cell.value = "";
-  k11Cell.font = { size: 10, name: "Times New Roman" };
-  k11Cell.alignment = { horizontal: "center", vertical: "middle" };
-  k11Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k11Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Row 12: Units row
+  const unitsRow = summarySheet.getRow(12);
+  unitsRow.height = 45;
 
-  const mfLabelCell = summarySheet.getCell("D12");
-  mfLabelCell.value = "MF";
-  mfLabelCell.font = { bold: true, size: 10, name: "Times New Roman" };
-  mfLabelCell.alignment = { horizontal: "right", vertical: "middle" };
-  mfLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  mfLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Units label - merge A12:B12
+  summarySheet.mergeCells('A12:B12');
+  const unitsLabelCell = summarySheet.getCell('A12');
+  unitsLabelCell.value = 'Units (MWh)';
+  unitsLabelCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  unitsLabelCell.alignment = { horizontal: 'left', vertical: 'middle' };
+  unitsLabelCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFF00' } // Yellow background
+  };
+  unitsLabelCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'medium' },
+    right: { style: 'thin' }
+  };
 
-  const mfCells = [{
-    col: "E12",
-    value: lossesCalculationData.mainClient.mainClientDetail.mf || "5000",
-    bgColor: "D9D9D9",
-  }];
+  // Units value - C12
+  const unitsValueCell = summarySheet.getCell('C12');
+  unitsValueCell.value = displayExactValue(netInjectedValue);
+  unitsValueCell.font = { bold: true, size: 10, name: 'Times New Roman', color: { argb: 'FF0000' } };
+  unitsValueCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  unitsValueCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFF00' } // Yellow background
+  };
+  unitsValueCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'medium' },
+    bottom: { style: 'medium' },
+    right: { style: 'medium' }
+  };
+
+  // MF label - D12
+  const mfLabelCell = summarySheet.getCell('D12');
+  mfLabelCell.value = 'MF';
+  mfLabelCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  mfLabelCell.alignment = { horizontal: 'right', vertical: 'middle' };
+  mfLabelCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'D9D9D9' }
+  };
+  mfLabelCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'medium' },
+    bottom: { style: 'medium' },
+    right: { style: 'medium' }
+  };
+
+  // Fixed layout for MF cells (E12:I12)
+  const mfCells = [
+    {
+      col: 'E12',
+      value: lossesCalculationData.mainClient.mainClientDetail.mf || '5000', // Default 5000 for main client
+      bgColor: 'D9D9D9'
+    }
+  ];
+
+  // Add subclient MFs (up to 5 columns total)
   for (let i = 0; i < maxSubClients; i++) {
-    const colChar = String.fromCharCode(69 + i + 1);
+    const colChar = String.fromCharCode(69 + i + 1); // Start from F (70)
+    const cellRef = `${colChar}12`;
+    const value = i < lossesCalculationData.subClient.length ?
+      lossesCalculationData.subClient[i].mf || '1000' : // Default 1000 for sub clients
+      '';
+
     mfCells.push({
-      col: `${colChar}12`,
-      value: i < lossesCalculationData.subClient.length ? (lossesCalculationData.subClient[i].mf || "1000") : "",
-      bgColor: "D9D9D9",
+      col: cellRef,
+      value: value,
+      bgColor: 'D9D9D9'
     });
   }
-  mfCells.forEach((v) => {
-    const cell = summarySheet.getCell(v.col);
-    cell.value = v.value;
-    cell.font = { size: 10, name: "Times New Roman" };
-    cell.alignment = { horizontal: "center", vertical: "middle" };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: v.bgColor } };
-    cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+
+  // Apply formatting to all MF cells
+  mfCells.forEach(cell => {
+    const cellRef = summarySheet.getCell(cell.col);
+    cellRef.value = cell.value;
+    cellRef.font = { size: 10, name: 'Times New Roman' };
+    cellRef.alignment = { horizontal: 'center', vertical: 'middle' };
+    cellRef.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: cell.bgColor }
+    };
+    cellRef.border = {
+      top: { style: 'thin' },
+      left: { style: 'medium' },
+      bottom: { style: 'medium' },
+      right: { style: 'medium' }
+    };
   });
-
-  // K12 blank cell
-  const k12Cell = summarySheet.getCell("K12");
-  k12Cell.value = "";
-  k12Cell.font = { size: 10, name: "Times New Roman" };
-  k12Cell.alignment = { horizontal: "center", vertical: "middle" };
-  k12Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k12Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
-
-  // Row 13 spacer before table
+  // Add blank row
   summarySheet.getRow(13).height = 15;
 
-  // === Rows 14–16: Overall Distributions to Distribution Licensee (DISCOM) ===
-  // Left merged label block A14:B16
-  summarySheet.mergeCells("A14:B16");
-  const discomBlockLabel = summarySheet.getCell("A14");
-  discomBlockLabel.value = "Overall Distributions to Distribution\nLicensee ( DISCOM )";
-  discomBlockLabel.font = { bold: true, size: 11, name: "Times New Roman" };
-  discomBlockLabel.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-  discomBlockLabel.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFF00" } };
-  discomBlockLabel.border = {
-    top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" },
-  };
-
-  // Row labels in column C (yellow)
-  const r14 = summarySheet.getCell("C14");
-  r14.value = "DISCOM Name";
-  r14.font = { bold: true, size: 10, name: "Times New Roman" };
-  r14.alignment = { horizontal: "center", vertical: "middle" };
-  r14.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFF00" } };
-  r14.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
-
-  const r15 = summarySheet.getCell("C15");
-  r15.value = "TOTAL Units";
-  r15.font = { bold: true, size: 10, name: "Times New Roman" };
-  r15.alignment = { horizontal: "center", vertical: "middle" };
-  r15.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFF00" } };
-  r15.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
-
-  const r16 = summarySheet.getCell("C16");
-  r16.value = "Percentage (%)";
-  r16.font = { bold: true, size: 10, name: "Times New Roman" };
-  r16.alignment = { horizontal: "center", vertical: "middle" };
-  r16.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFF00" } };
-  r16.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
-
-  // DISCOM columns D..J
-  const discoms = ["DGVCL", "MGVCL", "PGVCL", "UGVCL", "TAECO", "TSECO", "TEL", "TOTAL"];
-
-  // Pull values from DB (null -> 0)
-  const rawValues = [
-    Number(lossesCalculationData.DGVCL || 0),
-    Number(lossesCalculationData.MGVCL || 0),
-    Number(lossesCalculationData.PGVCL || 0),
-    Number(lossesCalculationData.UGVCL || 0),
-    Number(lossesCalculationData.TAECO || 0),
-    Number(lossesCalculationData.TSECO || 0),
-    Number(lossesCalculationData.TEL || 0),
-  ];
-
-  // Compute total (8th column J)
-  const totalUnits = rawValues.reduce((a, b) => a + b, 0);
-  const values = [...rawValues, totalUnits];
-
-  // helper to get column letter from index 0..7 -> D..J
-  const colFromIndex = (i) => String.fromCharCode("D".charCodeAt(0) + i);
-
-  // Colors
-  const yellow = "FFFF00";
-  const lightPink = "FFC7CE";
-
-  // Build rows 14 (names), 15 (units), 16 (percentages)
-  for (let i = 0; i < discoms.length; i++) {
-    const col = colFromIndex(i);
-    const isPink = (i === 0) || (i === discoms.length - 1); // DGVCL and TOTAL columns pink
-
-    // Row 14: DISCOM Name
-    const nameCell = summarySheet.getCell(`${col}14`);
-    nameCell.value = discoms[i];
-    nameCell.font = { bold: true, size: 10, name: "Times New Roman" };
-    nameCell.alignment = { horizontal: "center", vertical: "middle" };
-    nameCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: isPink ? lightPink : yellow } };
-    nameCell.border = {
-      top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" },
-      right: { style: i === discoms.length - 1 ? "thin" : "thin" },
-    };
-
-    // Row 15: TOTAL Units (3-decimals as text)
-    const valCell = summarySheet.getCell(`${col}15`);
-    valCell.value = displayExactValue(values[i]); // uses your existing helper
-    valCell.font = { bold: true, size: 10, name: "Times New Roman" };
-    valCell.alignment = { horizontal: "center", vertical: "middle" };
-    valCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: isPink ? lightPink : yellow } };
-    valCell.border = {
-      top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" },
-      right: { style: i === discoms.length - 1 ? "thin" : "thin" },
-    };
-
-    // Row 16: Percentage (2-decimals + %)
-    const pct = totalUnits > 0 ? (values[i] / totalUnits) * 100 : 0;
-    const pctCell = summarySheet.getCell(`${col}16`);
-    pctCell.value = `${pct.toFixed(2)}%`;
-    pctCell.font = { bold: true, size: 10, name: "Times New Roman" };
-    pctCell.alignment = { horizontal: "center", vertical: "middle" };
-    pctCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: isPink ? lightPink : yellow } };
-    pctCell.border = {
-      top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" },
-      right: { style: i === discoms.length - 1 ? "thin" : "thin" },
-    };
-  }
-
-  // Make row heights match your style
-  summarySheet.getRow(14).height = 28;
-  summarySheet.getRow(15).height = 28;
-  summarySheet.getRow(16).height = 28;
-
-  // =========================
-  // SHIFTED TABLE START HERE
-  // =========================
-  const tableStartRow = 18;           // (was 14) → moved entire table down by 4 rows
-  const headerRow = tableStartRow;    // 18
-  const dataStartRow = headerRow + 1; // 19
-
-  // Header row
-  const tableHeaderRow = summarySheet.getRow(headerRow);
+  // Row 14: Table headers
+  const tableHeaderRow = summarySheet.getRow(14);
   tableHeaderRow.height = 54;
 
+  // Table headers
   const tableHeaders = [
-    { cell: `A${headerRow}`, value: "Sr. No.", bgColor: "D9D9D9", borderRight: "thin", borderLeft: "thin" },
-    { cell: `B${headerRow}`, value: "HT Consumer Name", bgColor: "D9D9D9" },
-    { cell: `C${headerRow}`, value: "HT Consumer No.", bgColor: "D9D9D9" },
-    { cell: `D${headerRow}`, value: "Wheeling Division Office/Location", bgColor: "D9D9D9" },
-    { cell: `E${headerRow}`, value: "Wheeling DISCOM", bgColor: "D9D9D9" },
-    { cell: `F${headerRow}`, value: "Project Capacity (kW) (AC)", bgColor: "D9D9D9", borderRight: "thin" },
-    { cell: `G${headerRow}`, value: "Share in Gross Injected Units to S/S (MWh)", bgColor: "D9D9D9" },
-    { cell: `H${headerRow}`, value: "Share in Gross Drawl Units from S/S (MWh)", bgColor: "D9D9D9" },
-    { cell: `I${headerRow}`, value: "Net Injected Units to S/S (MWh)", bgColor: "D9D9D9" },
-    { cell: `J${headerRow}`, value: "% Weightage According to Gross Injecting", bgColor: "D9D9D9" },
+    { cell: 'A14', value: 'Sr. No.', bgColor: 'D9D9D9', borderRight: 'thin', borderLeft: 'thin' }, // Special property for this cell
+    { cell: 'B14', value: 'HT Consumer Name', bgColor: 'D9D9D9' },
+    { cell: 'C14', value: 'HT Consumer No.', bgColor: 'D9D9D9' },
+    { cell: 'D14', value: 'Wheeling Division Office/Location', bgColor: 'D9D9D9' },
+    { cell: 'E14', value: 'Wheeling DISCOM', bgColor: 'D9D9D9' },
+    {
+      cell: 'F14',
+      value: 'Project Capacity (kW) (AC)',
+      bgColor: 'D9D9D9',
+      borderRight: 'medium'  // Special property for this cell
+    },
+    { cell: 'G14', value: 'Share in Gross Injected Units to S/S (MWh)', bgColor: 'D9D9D9' },
+    { cell: 'H14', value: 'Share in Gross Drawl Units from S/S (MWh)', bgColor: 'D9D9D9' },
+    { cell: 'I14', value: 'Net Injected Units to S/S (MWh)', bgColor: 'D9D9D9' },
+    { cell: 'J14', value: '% Weightage According to Gross Injecting', bgColor: 'D9D9D9' }
   ];
 
-  tableHeaders.forEach((h) => {
-    const cell = summarySheet.getCell(h.cell);
-    cell.value = h.value;
-    cell.font = { bold: true, size: 10, name: "Times New Roman" };
-    cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: h.bgColor } };
+  // Apply table headers
+  tableHeaders.forEach(header => {
+    const cell = summarySheet.getCell(header.cell);
+    cell.value = header.value;
+    cell.font = { bold: true, size: 10, name: 'Times New Roman' };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: header.bgColor }
+    };
     cell.border = {
-      top: { style: "thin" },
-      left: { style: h.borderLeft || "thin" },
-      bottom: { style: "thin" },
-      right: { style: h.borderRight || "thin" },
+      top: { style: 'thin' },
+      left: { style: header.borderLeft || 'thin' },  // Use specified or default to thin
+      bottom: { style: 'thin' },
+      right: { style: header.borderRight || 'thin' }  // Use specified or default to thin
     };
   });
 
-  // K18 cell with "Remark"
-  const k18Cell = summarySheet.getCell("K18");
-  k18Cell.value = "Remark";
-  k18Cell.font = { bold: true, size: 10, name: "Times New Roman" };
-  k18Cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-  k18Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k18Cell.border = {
-    top: { style: "thin" },
-    left: { style: "thin" },
-    bottom: { style: "thin" },
-    right: { style: "thin" },
+  // Add medium borders around the entire header row (outer borders)
+  const headerRow = 14;
+  const firstHeaderCol = 'A';
+  const lastHeaderCol = 'J';
+
+  // Left border for first column
+  const leftCell = summarySheet.getCell(`${firstHeaderCol}${headerRow}`);
+  leftCell.border = {
+    ...leftCell.border,
+    left: { style: 'medium' }
   };
 
-  // Outer thin border for header row
-  const firstHeaderCol = "A";
-  const lastHeaderCol = "J";
-  const leftCell = summarySheet.getCell(`${firstHeaderCol}${headerRow}`);
-  leftCell.border = { ...leftCell.border, left: { style: "thin" } };
+  // Right border for last column
   const rightCell = summarySheet.getCell(`${lastHeaderCol}${headerRow}`);
-  rightCell.border = { ...rightCell.border, right: { style: "thin" } };
+  rightCell.border = {
+    ...rightCell.border,
+    right: { style: 'medium' }
+  };
+
+  // Top and bottom borders for all header cells
   for (let col = 1; col <= 10; col++) {
     const colChar = String.fromCharCode(64 + col);
     const cell = summarySheet.getCell(`${colChar}${headerRow}`);
-    cell.border = { ...cell.border, top: { style: "thin" }, bottom: { style: "thin" } };
+    cell.border = {
+      ...cell.border,
+      top: { style: 'medium' },
+      bottom: { style: 'medium' }
+    };
   }
-  // Add thin top and bottom borders to K18
-  k18Cell.border = { ...k18Cell.border, top: { style: "thin" }, bottom: { style: "thin" } };
-
-  // Data rows
-  let rowNum = dataStartRow; // starts at 19
-  let globalIndex = 1;
+  // Add data rows for each subclient
+  let rowNum = 15;
+  let globalIndex = 1; // Initialize a global counter for sequential numbering
 
   lossesCalculationData.subClient.forEach((subClient) => {
     const subClientData = subClient.subClientsData || {};
 
+    // Check if this subclient has partclients
     if (subClientData.partclient && subClientData.partclient.length > 0) {
+      // Add each partclient as a separate row
       subClientData.partclient.forEach((partClient, partIndex) => {
         const currentRowNum = rowNum++;
         const row = summarySheet.getRow(currentRowNum);
@@ -1599,98 +1510,106 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         const grossInjection = partClient.grossInjectionMWHAfterLosses || 0;
         const drawl = partClient.drawlMWHAfterLosses || 0;
         const netInjection = grossInjection + drawl;
-        const weightage = totalGrossInjectedForGreenBox > 0 ? (grossInjection / totalGrossInjectedForGreenBox) * 100 : 0;
+        const weightage = grossInjectedValue > 0 ? (grossInjection / grossInjectedValue) * 100 : 0;
 
-        // A: Sr No
+        // Sr. No. - Use globalIndex and increment it
         summarySheet.getCell(`A${currentRowNum}`).value = globalIndex++;
-        summarySheet.getCell(`A${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-        summarySheet.getCell(`A${currentRowNum}`).border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+        summarySheet.getCell(`A${currentRowNum}`).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        summarySheet.getCell(`A${currentRowNum}`).border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' }
+        };
 
-        // B: Name + sharing
+        // HT Consumer Name with sharing percentage - LEFT ALIGNED
+        // HT Consumer Name with sharing percentage - LEFT ALIGNED
         summarySheet.getCell(`B${currentRowNum}`).value = {
           richText: [
-            { text: `${subClient.name.toUpperCase()} - Unit-${partIndex + 1}`, font: { size: 10, name: "Times New Roman" } },
-            { text: ` (${partClient.sharingPercentage}% of Sharing OA)`, font: { size: 10, name: "Times New Roman" } },
-          ],
+            { text: `${subClient.name.toUpperCase()} - Unit-${partIndex + 1}`, font: { size: 10, name: 'Times New Roman' } },
+            { text: ` (${partClient.sharingPercentage}% of Sharing OA)`, font: { size: 10, name: 'Times New Roman' } }
+          ]
         };
-        summarySheet.getCell(`B${currentRowNum}`).alignment = { horizontal: "left", vertical: "middle", wrapText: true };
-        summarySheet.getCell(`B${currentRowNum}`).border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
-        summarySheet.getCell(`B${currentRowNum}`).font = { size: 10, name: "Times New Roman" };
+        summarySheet.getCell(`B${currentRowNum}`).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+        summarySheet.getCell(`B${currentRowNum}`).border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+        summarySheet.getCell(`B${currentRowNum}`).font = { size: 10, name: 'Times New Roman' };
 
-        // C..E
-        summarySheet.getCell(`C${currentRowNum}`).value = partClient.consumerNo || "";
-        summarySheet.getCell(`C${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle" };
+        // HT Consumer No.
+        summarySheet.getCell(`C${currentRowNum}`).value = partClient.consumerNo || '';
+        summarySheet.getCell(`C${currentRowNum}`).alignment = { horizontal: 'center', vertical: 'middle' };
 
-        summarySheet.getCell(`D${currentRowNum}`).value = subClient.divisionName || "";
-        summarySheet.getCell(`D${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+        // Wheeling Division Office/Location
+        summarySheet.getCell(`D${currentRowNum}`).value = subClient.divisionName || '';
+        summarySheet.getCell(`D${currentRowNum}`).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
 
-        summarySheet.getCell(`E${currentRowNum}`).value = subClient.discom || "";
-        summarySheet.getCell(`E${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle" };
+        // Wheeling Discom
+        summarySheet.getCell(`E${currentRowNum}`).value = subClient.discom || '';
+        summarySheet.getCell(`E${currentRowNum}`).alignment = { horizontal: 'center', vertical: 'middle' };
 
-        // F: Capacity (merge for partclients)
+        // Project Capacity (kW) (AC) - only show for first partclient
         if (partIndex === 0) {
-          summarySheet.getCell(`F${currentRowNum}`).value = subClient.acCapacityKw || "";
-          summarySheet.getCell(`F${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle" };
-          summarySheet.getCell(`F${currentRowNum}`).border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+          summarySheet.getCell(`F${currentRowNum}`).value = subClient.acCapacityKw || '';
+          summarySheet.getCell(`F${currentRowNum}`).alignment = { horizontal: 'center', vertical: 'middle' };
+          // Add medium right border to Project Capacity cell
+          summarySheet.getCell(`F${currentRowNum}`).border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'medium' }  // Medium right border
+          };
 
+          // Merge capacity cells vertically for all partclients
           if (subClientData.partclient.length > 1) {
             summarySheet.mergeCells(`F${currentRowNum}:F${currentRowNum + subClientData.partclient.length - 1}`);
+            // Also apply the medium right border to merged cells
             for (let i = 0; i < subClientData.partclient.length; i++) {
               summarySheet.getCell(`F${currentRowNum + i}`).border = {
-                top: i === 0 ? { style: "thin" } : { style: "none" },
-                left: { style: "thin" },
-                bottom: i === subClientData.partclient.length - 1 ? { style: "thin" } : { style: "none" },
-                right: { style: "thin" },
+                top: i === 0 ? { style: 'thin' } : { style: 'none' },
+                left: { style: 'thin' },
+                bottom: i === subClientData.partclient.length - 1 ? { style: 'thin' } : { style: 'none' },
+                right: { style: 'medium' }  // Medium right border for all merged cells
               };
             }
           }
         }
 
-        // Base formatting for other cells (except B,F done above)
-        for (let col = 3; col <= 10; col++) {
-          if (col !== 6) {
+        // Apply base formatting to all other cells (except column B and F which are already set)
+        for (let col = 3; col <= 10; col++) { // Start from column C (3)
+          if (col !== 6) { // Skip column F (6) as it's already handled
             const cell = row.getCell(col);
-            cell.font = { size: 10, name: "Times New Roman" };
-            cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-            cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+            cell.font = { size: 10, name: 'Times New Roman' };
+            cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+            cell.border = {
+              top: { style: 'thin' },
+              left: { style: 'thin' },
+              bottom: { style: 'thin' },
+              right: { style: 'thin' }
+            };
           }
         }
 
-        // Bold numeric cols
-        ["G", "H", "I", "J"].forEach((col) => {
+        // Now apply bold formatting to specific cells
+        const boldCells = ['G', 'H', 'I', 'J'];
+        boldCells.forEach(col => {
           const cell = summarySheet.getCell(`${col}${currentRowNum}`);
           cell.font = { ...cell.font, bold: true };
         });
 
+        // Set values for bold cells
         summarySheet.getCell(`G${currentRowNum}`).value = displayExactValue(grossInjection);
         summarySheet.getCell(`H${currentRowNum}`).value = displayExactValue(drawl);
         summarySheet.getCell(`I${currentRowNum}`).value = displayExactValue(netInjection);
+        // summarySheet.getCell(`J${currentRowNum}`).value = `${displayExactValue(weightage, 2)} %`;
         summarySheet.getCell(`J${currentRowNum}`).value = `${Number(weightage).toFixed(2)} %`;
 
-        // K cell (blank) for data rows
-        const kDataCell = summarySheet.getCell(`K${currentRowNum}`);
-        kDataCell.value = "";
-        kDataCell.font = { size: 10, name: "Times New Roman" };
-        kDataCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-        kDataCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
-
-        // Increase border for rows 25-27, columns F-K
-        if (currentRowNum >= 25 && currentRowNum <= 27) {
-          const colsFtoK = ["F", "G", "H", "I", "J", "K"];
-          colsFtoK.forEach((col) => {
-            const cell = summarySheet.getCell(`${col}${currentRowNum}`);
-            const currentBorder = cell.border || {};
-            cell.border = {
-              top: { style: "thin" },
-              left: { style: currentBorder.left?.style === "thin" ? "thin" : "thin" },
-              bottom: { style: "thin" },
-              right: { style: "thin" },
-            };
-          });
-        }
       });
     } else {
-      // single subclient row
+      // Regular subclient without partclients
       const currentRowNum = rowNum++;
       const row = summarySheet.getRow(currentRowNum);
       row.height = 60;
@@ -1698,213 +1617,217 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       const grossInjection = subClientData.grossInjectionMWHAfterLosses || 0;
       const drawl = subClientData.drawlMWHAfterLosses || 0;
       const netInjection = subClientData.netInjectionMWHAfterLosses || 0;
-      const weightage = totalGrossInjectedForGreenBox > 0 ? (grossInjection / totalGrossInjectedForGreenBox) * 100 : 0;
+      const weightage = (netInjection / lossesCalculationData.mainClient.netInjectionMWH) * 100 || 0; // Use main client's net injection for weightage calculation
+      // const weightage = grossInjectedValue > 0 ? (grossInjection / grossInjectedValue) * 100 : 0;
 
+      // Sr. No. - Use globalIndex and increment it
       summarySheet.getCell(`A${currentRowNum}`).value = globalIndex++;
-      summarySheet.getCell(`A${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-      summarySheet.getCell(`A${currentRowNum}`).border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+      summarySheet.getCell(`A${currentRowNum}`).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      summarySheet.getCell(`A${currentRowNum}`).border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
+      };
 
+      // HT Consumer Name - LEFT ALIGNED
       summarySheet.getCell(`B${currentRowNum}`).value = `${subClient.name.toUpperCase()}`;
-      summarySheet.getCell(`B${currentRowNum}`).alignment = { horizontal: "left", vertical: "middle", wrapText: true };
-      summarySheet.getCell(`B${currentRowNum}`).border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
-      summarySheet.getCell(`B${currentRowNum}`).font = { size: 10, name: "Times New Roman" };
+      summarySheet.getCell(`B${currentRowNum}`).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+      summarySheet.getCell(`B${currentRowNum}`).border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
+      };
+      summarySheet.getCell(`B${currentRowNum}`).font = { size: 10, name: 'Times New Roman' };
 
-      summarySheet.getCell(`C${currentRowNum}`).value = subClient.consumerNo || "";
-      summarySheet.getCell(`C${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle" };
+      // HT Consumer No.
+      summarySheet.getCell(`C${currentRowNum}`).value = subClient.consumerNo || '';
+      summarySheet.getCell(`C${currentRowNum}`).alignment = { horizontal: 'center', vertical: 'middle' };
 
-      summarySheet.getCell(`D${currentRowNum}`).value = subClient.divisionName || "";
-      summarySheet.getCell(`D${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      // Wheeling Division Office/Location
+      summarySheet.getCell(`D${currentRowNum}`).value = subClient.divisionName || '';
+      summarySheet.getCell(`D${currentRowNum}`).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
 
+      // Wheeling Discom
       summarySheet.getCell(`E${currentRowNum}`).value = subClient.discom;
-      summarySheet.getCell(`E${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle" };
+      summarySheet.getCell(`E${currentRowNum}`).alignment = { horizontal: 'center', vertical: 'middle' };
 
-      summarySheet.getCell(`F${currentRowNum}`).value = subClient.acCapacityKw || "";
-      summarySheet.getCell(`F${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle" };
-      summarySheet.getCell(`F${currentRowNum}`).border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+      // Project Capacity (kW) (AC) with medium right border
+      summarySheet.getCell(`F${currentRowNum}`).value = subClient.acCapacityKw || '';
+      summarySheet.getCell(`F${currentRowNum}`).alignment = { horizontal: 'center', vertical: 'middle' };
+      summarySheet.getCell(`F${currentRowNum}`).border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'medium' }  // Medium right border
+      };
 
-      for (let col = 3; col <= 10; col++) {
-        if (col !== 6) {
+      // Apply base formatting to all other cells (except column B and F which are already set)
+      for (let col = 3; col <= 10; col++) { // Start from column C (3)
+        if (col !== 6) { // Skip column F (6) as it's already handled
           const cell = row.getCell(col);
-          cell.font = { size: 10, name: "Times New Roman" };
-          cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-          cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+          cell.font = { size: 10, name: 'Times New Roman' };
+          cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+          };
         }
       }
 
-      ["G", "H", "I", "J"].forEach((col) => {
+      // Now apply bold formatting to specific cells
+      const boldCells = ['G', 'H', 'I', 'J'];
+      boldCells.forEach(col => {
         const cell = summarySheet.getCell(`${col}${currentRowNum}`);
         cell.font = { ...cell.font, bold: true };
       });
 
+      // Set values for bold cells
       summarySheet.getCell(`G${currentRowNum}`).value = displayExactValue(grossInjection);
       summarySheet.getCell(`H${currentRowNum}`).value = displayExactValue(drawl);
       summarySheet.getCell(`I${currentRowNum}`).value = displayExactValue(netInjection);
+      // summarySheet.getCell(`J${currentRowNum}`).value = `${displayExactValue(weightage, 2)} %`;
       summarySheet.getCell(`J${currentRowNum}`).value = `${Number(weightage).toFixed(2)} %`;
-
-      // K cell (blank) for data rows
-      const kDataCell = summarySheet.getCell(`K${currentRowNum}`);
-      kDataCell.value = "";
-      kDataCell.font = { size: 10, name: "Times New Roman" };
-      kDataCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-      kDataCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
-
-      // Increase border for rows 25-27, columns F-K
-      if (currentRowNum >= 25 && currentRowNum <= 27) {
-        const colsFtoK = ["F", "G", "H", "I", "J", "K"];
-        colsFtoK.forEach((col) => {
-          const cell = summarySheet.getCell(`${col}${currentRowNum}`);
-          const currentBorder = cell.border || {};
-          cell.border = {
-            top: { style: "thin" },
-            left: { style: currentBorder.left?.style === "thin" ? "thin" : "thin" },
-            bottom: { style: "thin" },
-            right: { style: "thin" },
-          };
-        });
-      }
     }
   });
 
-  // Blank row after data
+  // Add blank row where main client row would have been
   const blankRowNum = rowNum++;
   const blankRow = summarySheet.getRow(blankRowNum);
   blankRow.height = 15;
+
+  // Apply minimal formatting to blank row
   for (let col = 1; col <= 10; col++) {
     const cell = blankRow.getCell(col);
     cell.border = {
-      top: { style: "thin" },
-      left: { style: "thin" },
-      bottom: { style: "thin" },
-      right: { style: col === 6 ? "thin" : "thin" }, // keep F thin border
+      top: { style: 'thin' },
+      left: { style: 'thin' },
+      bottom: { style: 'thin' },
+      right: { style: col === 6 ? 'medium' : 'thin' } // Column F is the 6th column
     };
   }
-  // K cell for blank row
-  if (blankRowNum >= 18 && blankRowNum <= 27) {
-    const kBlankCell = summarySheet.getCell(`K${blankRowNum}`);
-    kBlankCell.value = "";
-    kBlankCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
-  }
-  // Increase border for rows 25-27, columns F-K (blank row)
-  if (blankRowNum >= 25 && blankRowNum <= 27) {
-    const colsFtoK = ["F", "G", "H", "I", "J", "K"];
-    colsFtoK.forEach((col) => {
-      const cell = summarySheet.getCell(`${col}${blankRowNum}`);
-      cell.border = {
-        top: { style: "thin" },
-        left: { style: col === "F" ? "thin" : "thin" },
-        bottom: { style: "thin" },
-        right: { style: "thin" },
-      };
-    });
-  }
 
-  // Totals row (immediately after blank)
+  // Add total row (now comes after blank row)
   const totalRowNum = blankRowNum + 1;
   const totalRow = summarySheet.getRow(totalRowNum);
   totalRow.height = 28;
 
+  // Merge and add "Total" label
   summarySheet.mergeCells(`A${totalRowNum}:E${totalRowNum}`);
   const totalLabelCells = summarySheet.getCell(`A${totalRowNum}`);
-  totalLabelCells.value = "Total";
-  totalLabelCells.font = { bold: true, size: 12, name: "Times New Roman" };
-  totalLabelCells.alignment = { horizontal: "center", vertical: "middle" };
-  totalLabelCells.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  totalLabelCells.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  totalLabelCells.value = 'Total';
+  totalLabelCells.font = { bold: true, size: 12, name: 'Times New Roman' };
+  totalLabelCells.alignment = { horizontal: 'center', vertical: 'middle' };
+  totalLabelCells.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'D9D9D9' }
+  };
+  totalLabelCells.border = {
+    top: { style: 'medium' }, // Changed to medium
+    left: { style: 'thin' },
+    bottom: { style: 'medium' }, // Changed to medium
+    right: { style: 'thin' }
+  };
 
-  // Compute totals
+  // Calculate totals from all subclients and partclients
   let totalCapacity = 0;
   let totalGrossInjected = 0;
   let totalGrossDrawl = 0;
 
-  lossesCalculationData.subClient.forEach((subClient) => {
-    const sc = subClient.subClientsData || {};
-    if (sc.partclient && sc.partclient.length > 0) {
+  lossesCalculationData.subClient.forEach(subClient => {
+    const subClientData = subClient.subClientsData || {};
+
+    if (subClientData.partclient && subClientData.partclient.length > 0) {
+      // Only count capacity once for the parent subclient
       totalCapacity += subClient.acCapacityKw || 0;
-      sc.partclient.forEach((pc) => {
-        totalGrossInjected += pc.grossInjectionMWHAfterLosses || 0;
-        totalGrossDrawl += pc.drawlMWHAfterLosses || 0;
+
+      // Sum all partclient values
+      subClientData.partclient.forEach(partClient => {
+        totalGrossInjected += partClient.grossInjectionMWHAfterLosses || 0;
+        totalGrossDrawl += partClient.drawlMWHAfterLosses || 0;
       });
     } else {
       totalCapacity += subClient.acCapacityKw || 0;
-      totalGrossInjected += sc.grossInjectionMWHAfterLosses || 0;
-      totalGrossDrawl += sc.drawlMWHAfterLosses || 0;
+      totalGrossInjected += subClientData.grossInjectionMWHAfterLosses || 0;
+      totalGrossDrawl += subClientData.drawlMWHAfterLosses || 0;
     }
   });
 
   const totalNetInjected = totalGrossInjected + totalGrossDrawl;
 
-  // F..J totals
+  // Project Capacity total
   const fCell = summarySheet.getCell(`F${totalRowNum}`);
   fCell.value = totalCapacity;
-  fCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  fCell.border = {  // Added specific border for F cell
+    top: { style: 'medium' },
+    left: { style: 'thin' },
+    bottom: { style: 'medium' },
+    right: { style: 'medium' } // Medium right border
+  };
 
+  // Gross Injected total
   summarySheet.getCell(`G${totalRowNum}`).value = displayExactValue(totalGrossInjected);
-  summarySheet.getCell(`H${totalRowNum}`).value = displayExactValue(totalGrossDrawl);
-  summarySheet.getCell(`I${totalRowNum}`).value = displayExactValue(totalNetInjected);
-  summarySheet.getCell(`J${totalRowNum}`).value = "100%";
 
+  // Gross Drawl total
+  summarySheet.getCell(`H${totalRowNum}`).value = displayExactValue(totalGrossDrawl);
+
+  // Net Injected total
+  summarySheet.getCell(`I${totalRowNum}`).value = displayExactValue(totalNetInjected);
+
+  // % Weightage total
+  summarySheet.getCell(`J${totalRowNum}`).value = '100%';
+
+  // Apply formatting to total cells
   for (let col = 6; col <= 10; col++) {
     const cell = totalRow.getCell(col);
-    cell.font = { bold: true, size: 12, name: "Times New Roman" };
-    cell.alignment = { horizontal: "center", vertical: "middle" };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
+    cell.font = { bold: true, size: 12, name: 'Times New Roman' };
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'D9D9D9' }
+    };
     cell.border = {
-      top: { style: "thin" },
-      left: { style: "thin" },
-      bottom: { style: "thin" },
-      right: { style: col === 6 ? "thin" : "thin" },
+      top: { style: 'medium' }, // Changed to medium
+      left: { style: 'thin' },
+      bottom: { style: 'medium' }, // Changed to medium
+      right: { style: col === 6 ? 'medium' : 'thin' } // Medium right border only for F (col 6)
     };
   }
-  // K cell for totals row
-  if (totalRowNum >= 18 && totalRowNum <= 27) {
-    const kTotalCell = summarySheet.getCell(`K${totalRowNum}`);
-    kTotalCell.value = "";
-    kTotalCell.font = { bold: true, size: 12, name: "Times New Roman" };
-    kTotalCell.alignment = { horizontal: "center", vertical: "middle" };
-    kTotalCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-    kTotalCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
-  }
-  // Increase border for rows 25-27, columns F-K (totals row)
-  if (totalRowNum >= 25 && totalRowNum <= 27) {
-    const colsFtoK = ["F", "G", "H", "I", "J", "K"];
-    colsFtoK.forEach((col) => {
-      const cell = summarySheet.getCell(`${col}${totalRowNum}`);
-      cell.border = {
-        top: { style: "thin" },
-        left: { style: col === "F" ? "thin" : "thin" },
-        bottom: { style: "thin" },
-        right: { style: "thin" },
-      };
-    });
-  }
 
-  // Spacer after totals
+  // Add blank row
   summarySheet.getRow(totalRowNum + 1).height = 15;
 
-  // Notes (shifted down automatically)
-  const noteRow1 = totalRowNum + 2;
-  const noteRow2 = totalRowNum + 3;
+  // Add note rows
+  const noteRow1 = totalRowNum + 2; // Row 22 in your example
+  const noteRow2 = totalRowNum + 3; // Row 23 in your example
 
+  // Row 22 - First note line
   summarySheet.getCell(`A${noteRow1}`).value = "Note:";
-  summarySheet.getCell(`A${noteRow1}`).font = { bold: true, italic: true, size: 10, name: "Times New Roman" };
+  summarySheet.getCell(`A${noteRow1}`).font = { bold: true, italic: true, size: 10, name: 'Times New Roman' };
   summarySheet.mergeCells(`B${noteRow1}:J${noteRow1}`);
   const noteCell1 = summarySheet.getCell(`B${noteRow1}`);
   noteCell1.value = {
     richText: [
-      { text: "1) All Units are in ", font: { bold: true, italic: true, size: 10, name: "Times New Roman" } },
-      { text: "MWH", font: { bold: true, italic: true, size: 10, name: "Times New Roman", color: { argb: "FF0000" } } },
-    ],
+      { text: "1) All Units are in ", font: { bold: true, italic: true, size: 10, name: 'Times New Roman' } },
+      { text: "MWH", font: { bold: true, italic: true, size: 10, name: 'Times New Roman', color: { argb: 'FF0000' } } }
+    ]
   };
 
-  summarySheet.getCell(`A${noteRow2}`).value = "";
+  // Row 23 - Second note line
+  summarySheet.getCell(`A${noteRow2}`).value = ""; // Empty cell in column A
   summarySheet.mergeCells(`B${noteRow2}:J${noteRow2}`);
   const noteCell2 = summarySheet.getCell(`B${noteRow2}`);
   noteCell2.value = {
     richText: [
-      { text: "2) ", font: { bold: true, italic: true, size: 10, name: "Times New Roman" } },
-      { text: `${lossesCalculationData.mainClient.meterNumber}`, font: { italic: true, size: 10, name: "Times New Roman", bold: true } },
-      { text: ` is the Grossing Meter at ${lossesCalculationData.mainClient.mainClientDetail.subTitle} S/S End`, font: { bold: true, italic: true, size: 10, name: "Times New Roman" } },
-    ],
+      { text: "2) ", font: { bold: true, italic: true, size: 10, name: 'Times New Roman' } },
+      { text: `${lossesCalculationData.mainClient.meterNumber}`, font: { italic: true, size: 10, name: 'Times New Roman', bold: true } },
+      { text: ` is the Grossing Meter at ${lossesCalculationData.mainClient.mainClientDetail.subTitle} S/S End`, font: { bold: true, italic: true, size: 10, name: 'Times New Roman' } }
+    ]
   };
 
   // Apply common formatting to both rows
@@ -1913,10 +1836,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       const cell = summarySheet.getCell(`${String.fromCharCode(64 + col)}${row}`);
       cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
       cell.border = {
-        top: { style: 'thin' },
-        left: { style: 'thin' },
-        bottom: { style: 'thin' },
-        right: { style: 'thin' }
+        top: { style: 'medium' },
+        left: { style: 'medium' },
+        bottom: { style: 'medium' },
+        right: { style: 'medium' }
       };
     }
   });
@@ -1931,14 +1854,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     const leftCell = summarySheet.getCell(`A${row}`);
     leftCell.border = {
       ...leftCell.border,
-      left: { style: 'thin' }
+      left: { style: 'medium' }
     };
 
     // Right border (column J)
     const rightCell = summarySheet.getCell(`J${row}`);
     rightCell.border = {
       ...rightCell.border,
-      right: { style: 'thin' }
+      right: { style: 'medium' }
     };
   }
 
@@ -1948,7 +1871,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     const cell = summarySheet.getCell(`${colChar}${firstDataRow}`);
     cell.border = {
       ...cell.border,
-      top: { style: 'thin' }
+      top: { style: 'medium' }
     };
   }
 
@@ -1958,7 +1881,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     const cell = summarySheet.getCell(`${colChar}${lastDataRow}`);
     cell.border = {
       ...cell.border,
-      bottom: { style: 'thin' }
+      bottom: { style: 'medium' }
     };
   }
 
@@ -1978,10 +1901,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     const cell = summarySheet.getCell(merge.split(':')[0]);
     cell.border = {
       ...cell.border,
-      top: { style: 'thin' },
-      left: { style: 'thin' },
-      bottom: { style: 'thin' },
-      right: { style: 'thin' }
+      top: { style: 'medium' },
+      left: { style: 'medium' },
+      bottom: { style: 'medium' },
+      right: { style: 'medium' }
     };
   });
 
@@ -2045,10 +1968,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     fgColor: { argb: 'FFFF00' } // Yellow background
   };
   companyCell.border = {
-    top: { style: 'thin', color: { argb: '000000' } },
-    left: { style: 'thin', color: { argb: '000000' } },
-    bottom: { style: 'thin', color: { argb: '000000' } },
-    right: { style: 'thin', color: { argb: '000000' } }
+    top: { style: 'medium', color: { argb: '000000' } },
+    left: { style: 'medium', color: { argb: '000000' } },
+    bottom: { style: 'medium', color: { argb: '000000' } },
+    right: { style: 'medium', color: { argb: '000000' } }
   };
 
   // Month cell in G3
@@ -2067,13 +1990,13 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     fgColor: { argb: 'FFFF00' } // Yellow background
   };
   monthCell.border = {
-    top: { style: 'thin', color: { argb: '000000' } },
-    left: { style: 'thin', color: { argb: '000000' } },
-    bottom: { style: 'thin', color: { argb: '000000' } },
-    right: { style: 'thin', color: { argb: '000000' } }
+    top: { style: 'medium', color: { argb: '000000' } },
+    left: { style: 'medium', color: { argb: '000000' } },
+    bottom: { style: 'medium', color: { argb: '000000' } },
+    right: { style: 'medium', color: { argb: '000000' } }
   };
 
-  // Date range from H3:J3 (will be extended later to include CHECK-SUM columns)
+  // Date range from H3:J3
   masterdataSheet.mergeCells('H3:J3');
   const dateRangeCell = masterdataSheet.getCell('H3');
   dateRangeCell.value = `01-${monthStr}-${lossesCalculationData.year} to ${lastDay}-${monthStr}-${lossesCalculationData.year}`;
@@ -2090,10 +2013,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     fgColor: { argb: 'FFFF00' } // Yellow background
   };
   dateRangeCell.border = {
-    top: { style: 'thin', color: { argb: '000000' } },
-    left: { style: 'thin', color: { argb: '000000' } },
-    bottom: { style: 'thin', color: { argb: '000000' } },
-    right: { style: 'thin', color: { argb: '000000' } }
+    top: { style: 'medium', color: { argb: '000000' } },
+    left: { style: 'medium', color: { argb: '000000' } },
+    bottom: { style: 'medium', color: { argb: '000000' } },
+    right: { style: 'medium', color: { argb: '000000' } }
   };
 
   masterdataSheet.getColumn('H').width = 14;
@@ -2176,10 +2099,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     fgColor: { argb: '92D050' }
   };
   combinedCell.border = {
-    top: { style: 'thin' },
-    left: { style: 'thin' },
-    bottom: { style: 'thin' },
-    right: { style: 'thin' }
+    top: { style: 'medium' },
+    left: { style: 'medium' },
+    bottom: { style: 'medium' },
+    right: { style: 'medium' }
   };
   masterdataSheet.getColumn('D').width = 22;
 
@@ -2209,9 +2132,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         };
         cell1.border = {
           top: { style: 'thin' },
-          left: { style: 'thin' },
+          left: { style: 'medium' },
           bottom: { style: 'thin' },
-          right: { style: 'thin' }
+          right: { style: 'medium' }
         };
 
         // Row 6 - DISCOM
@@ -2227,9 +2150,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         };
         cell2.border = {
           top: { style: 'thin' },
-          left: { style: 'thin' },
+          left: { style: 'medium' },
           bottom: { style: 'thin' },
-          right: { style: 'thin' }
+          right: { style: 'medium' }
         };
 
         // Row 7 - DIVISION NAME
@@ -2245,9 +2168,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         };
         cell3.border = {
           top: { style: 'thin' },
-          left: { style: 'thin' },
+          left: { style: 'medium' },
           bottom: { style: 'thin' },
-          right: { style: 'thin' }
+          right: { style: 'medium' }
         };
 
         // Row 8 - CONSUMER NO.
@@ -2263,9 +2186,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         };
         cell4.border = {
           top: { style: 'thin' },
-          left: { style: 'thin' },
+          left: { style: 'medium' },
           bottom: { style: 'thin' },
-          right: { style: 'thin' }
+          right: { style: 'medium' }
         };
 
         // Row 9 - Blank Row (color-matched to subclient)
@@ -2277,10 +2200,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
           fgColor: { argb: color }
         };
         cellGap.border = {
-          top: { style: 'thin' },
-          left: { style: 'thin' },
-          bottom: { style: 'thin' },
-          right: { style: 'thin' }
+          top: { style: 'medium' },
+          left: { style: 'medium' },
+          bottom: { style: 'medium' },
+          right: { style: 'medium' }
         };
 
         masterdataSheet.getColumn(colLetter).width = 22;
@@ -2303,9 +2226,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       };
       cell1.border = {
         top: { style: 'thin' },
-        left: { style: 'thin' },
+        left: { style: 'medium' },
         bottom: { style: 'thin' },
-        right: { style: 'thin' }
+        right: { style: 'medium' }
       };
 
       // Row 6 - DISCOM
@@ -2320,9 +2243,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       };
       cell2.border = {
         top: { style: 'thin' },
-        left: { style: 'thin' },
+        left: { style: 'medium' },
         bottom: { style: 'thin' },
-        right: { style: 'thin' }
+        right: { style: 'medium' }
       };
 
       // Row 7 - DIVISION NAME
@@ -2338,9 +2261,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       };
       cell3.border = {
         top: { style: 'thin' },
-        left: { style: 'thin' },
+        left: { style: 'medium' },
         bottom: { style: 'thin' },
-        right: { style: 'thin' }
+        right: { style: 'medium' }
       };
 
       // Row 8 - CONSUMER NO.
@@ -2355,9 +2278,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       };
       cell4.border = {
         top: { style: 'thin' },
-        left: { style: 'thin' },
+        left: { style: 'medium' },
         bottom: { style: 'thin' },
-        right: { style: 'thin' }
+        right: { style: 'medium' }
       };
 
       const cellD9 = masterdataSheet.getCell('D9');
@@ -2369,9 +2292,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       };
       cellD9.border = {
         top: { style: 'thin' },
-        left: { style: 'thin' },
+        left: { style: 'medium' },
         bottom: { style: 'thin' },
-        right: { style: 'thin' }
+        right: { style: 'medium' }
       };
 
       // Row 9 - Blank Row (color-matched to subclient)
@@ -2383,10 +2306,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         fgColor: { argb: color }
       };
       cellGap.border = {
-        top: { style: 'thin' },
-        left: { style: 'thin' },
-        bottom: { style: 'thin' },
-        right: { style: 'thin' }
+        top: { style: 'medium' },
+        left: { style: 'medium' },
+        bottom: { style: 'medium' },
+        right: { style: 'medium' }
       };
 
       masterdataSheet.getColumn(colLetter).width = 22;
@@ -2401,100 +2324,40 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   // Total DGVCL Share (merged from row 5 to 8)
   masterdataSheet.mergeCells(`${totalCol}5:${totalCol}8`);
   const totalCell = masterdataSheet.getCell(`${totalCol}5`);
-  totalCell.value = 'Total DGVCL Share (MWh)';
+  totalCell.value = 'Total Share (MWh)';
   totalCell.font = { bold: true, size: 10, name: 'Times New Roman' };
   totalCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
   totalCell.fill = {
     type: 'pattern',
     pattern: 'solid',
-    fgColor: { argb: 'F2F2F2' } // Light gray background
+    fgColor: { argb: 'FFFFFF' }
   };
   totalCell.border = {
-    top: { style: 'thin' },
-    left: { style: 'thin' },
-    bottom: { style: 'thin' },
-    right: { style: 'thin' }
+    top: { style: 'medium' },
+    left: { style: 'medium' },
+    bottom: { style: 'medium' },
+    right: { style: 'medium' }
   };
   masterdataSheet.getColumn(totalCol).width = 22;
 
-  // Add background color to Total Share column row 9 (blank row)
-  const totalCellRow9 = masterdataSheet.getCell(`${totalCol}9`);
-  totalCellRow9.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'F2F2F2' } // Light gray background
-  };
-
-  // CHECK-SUM section - Row 5: "CHECK - SUM with SLDC Approved Data"
-  const checkCellRow5 = masterdataSheet.getCell(`${checkSumCol}5`);
-  checkCellRow5.value = 'CHECK - SUM with SLDC Approved Data';
-  checkCellRow5.font = { bold: true, size: 10, name: 'Times New Roman' };
-  checkCellRow5.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-  checkCellRow5.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'F2F2F2' } // Light gray background
-  };
-  checkCellRow5.border = {
-    top: { style: 'thin' },
-    left: { style: 'thin' },
-    bottom: { style: 'thin' },
-    right: { style: 'thin' }
-  };
-
-  // CHECK-SUM section - Rows 6-7-8: "EXCESS INJECTION PPA ***"
-  masterdataSheet.mergeCells(`${checkSumCol}6:${checkSumCol}8`);
-  const checkCellRow6 = masterdataSheet.getCell(`${checkSumCol}6`);
-  checkCellRow6.value = 'EXCESS INJECTION PPA ***';
-  checkCellRow6.font = { bold: true, size: 10, name: 'Times New Roman' };
-  checkCellRow6.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-  checkCellRow6.fill = {
+  // CHECK-SUM (merged from row 5 to 8)
+  masterdataSheet.mergeCells(`${checkSumCol}5:${checkSumCol}8`);
+  const checkCell = masterdataSheet.getCell(`${checkSumCol}5`);
+  checkCell.value = 'CHECK-SUM';
+  checkCell.font = { bold: true, size: 10, name: 'Times New Roman' };
+  checkCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  checkCell.fill = {
     type: 'pattern',
     pattern: 'solid',
     fgColor: { argb: 'FFFFFF' }
   };
-  checkCellRow6.border = {
-    top: { style: 'thin' },
-    left: { style: 'thin' },
-    bottom: { style: 'thin' },
-    right: { style: 'thin' }
+  checkCell.border = {
+    top: { style: 'medium' },
+    left: { style: 'medium' },
+    bottom: { style: 'medium' },
+    right: { style: 'medium' }
   };
-
-  // Row 9: MWH sub-header only (KWH removed)
-  const mwhCell = masterdataSheet.getCell(`${checkSumCol}9`);
-  mwhCell.value = 'MWH';
-  mwhCell.font = { bold: true, size: 10, name: 'Times New Roman' };
-  mwhCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-  mwhCell.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FFFFFF' }
-  };
-  mwhCell.border = {
-    top: { style: 'thin' },
-    left: { style: 'thin' },
-    bottom: { style: 'thin' },
-    right: { style: 'thin' }
-  };
-
-  masterdataSheet.getColumn(checkSumCol).width = 15;
-
-  // Extend row 3 date range merge to include CHECK-SUM column
-  // First unmerge the existing H3:J3, then merge from H3 to checkSumCol
-  try {
-    masterdataSheet.unMergeCells('H3:J3');
-  } catch (e) {
-    // If already unmerged or doesn't exist, continue
-  }
-  masterdataSheet.mergeCells(`H3:${checkSumCol}3`);
-  // Update the border for the extended merged cell
-  const dateRangeCellExtended = masterdataSheet.getCell('H3');
-  dateRangeCellExtended.border = {
-    top: { style: 'thin', color: { argb: '000000' } },
-    left: { style: 'thin', color: { argb: '000000' } },
-    bottom: { style: 'thin', color: { argb: '000000' } },
-    right: { style: 'thin', color: { argb: '000000' } }
-  };
+  masterdataSheet.getColumn(checkSumCol).width = 22;
 
   // Data rows (GROSS INJECTION, GROSS DRAWL, NET INJECTION)
   const dataRows = [
@@ -2526,12 +2389,8 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         }, 0);
         values.push(sum);
 
-        // Calculate CHECK-SUM: Main client value - Sum of all subclients
-        const mainClientValue = data.mainClient.grossInjectionMWH;
-        const checkSumMWH = mainClientValue - sum;
-
-        // Add CHECK-SUM (MWH only, KWH removed from UI)
-        values.push(checkSumMWH); // MWH
+        // Add CHECK-SUM
+        values.push("0.000");
 
         return values;
       },
@@ -2563,12 +2422,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         }, 0);
         values.push(sum);
 
-        // Calculate CHECK-SUM: Main client value - Sum of all subclients
-        const mainClientValue = data.mainClient.drawlMWH;
-        const checkSumMWH = mainClientValue - sum;
-
-        // Add CHECK-SUM (MWH only, KWH removed from UI)
-        values.push(checkSumMWH); // MWH
+        values.push("0.000");
         return values;
       },
       format: value => value.toFixed(3)
@@ -2599,20 +2453,12 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         }, 0);
         values.push(sum);
 
-        // Calculate CHECK-SUM: Main client value - Sum of all subclients
-        const mainClientValue = data.mainClient.grossInjectionMWH + data.mainClient.drawlMWH;
-        const checkSumMWH = mainClientValue - sum;
-
-        // Add CHECK-SUM (MWH only, KWH removed from UI)
-        values.push(checkSumMWH); // MWH
+        values.push("0.000");
         return values;
       },
       format: value => value.toFixed(3)
     }
   ];
-
-  // Track CHECK-SUM values to determine header background colors
-  const checkSumValues = { mwh: [] };
 
   dataRows.forEach((row, rowIndex) => {
     const dataRow = 10 + rowIndex;
@@ -2633,37 +2479,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     };
 
     // Value cells start from column D
-    // Structure: values[0] = mainClient (D), values[1..n-3] = subclients (E, F, ...), values[n-2] = Total (totalCol), values[n-1] = MWH (checkSumCol)
-
-    // Count total number of data columns (excluding Total and CHECK-SUM)
-    // This is: 1 (mainClient) + number of subclients/partclients
-    const numDataColumns = values.length - 2; // Exclude Total and MWH (KWH removed)
-
     values.forEach((value, colIndex) => {
-      let colLetter;
-
-      if (colIndex === values.length - 2) {
-        // Total column - use the predefined totalCol
-        colLetter = totalCol;
-      } else if (colIndex === values.length - 1) {
-        // CHECK-SUM MWH column
-        colLetter = checkSumCol;
-      } else {
-        // Regular columns: mainClient (colIndex 0) → D, subclients/partclients (colIndex 1 to numDataColumns-1) → E, F, G, ...
-        // Calculate column letter: D (68) + colIndex
-        colLetter = String.fromCharCode(68 + colIndex); // D = 68, E = 69, F = 70, etc.
-      }
-
+      const colLetter = String.fromCharCode(68 + colIndex); // D, E, F...
       const cell = masterdataSheet.getCell(`${colLetter}${dataRow}`);
-
-      // Apply color to value cells based on column
-      const isTotal = colIndex === values.length - 2;
-      const isCheckSumMWH = colIndex === values.length - 1;
-
-      // For rows 10-11-12, use default format (3 decimals) for all columns including CHECK-SUM
-      // For rows 14+, CHECK-SUM formatting is handled separately in the time block section
       cell.value = typeof value === 'number' ? row.format(value) : value;
-
       cell.font = { size: 10, bold: true, name: 'Times New Roman' };
       cell.alignment = { horizontal: 'center', vertical: 'middle' };
       cell.border = {
@@ -2673,45 +2492,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         right: { style: 'thin' }
       };
 
-      // Apply yellow background to CHECK-SUM cells if non-zero
-      if (isCheckSumMWH) {
-        // Get the original numeric value (before formatting)
-        const numericValue = typeof value === 'number' ? value : parseFloat(value) || 0;
-        // Check if value is non-zero (with tolerance for floating point errors)
-        if (Math.abs(numericValue) > 0.0001) {
-          cell.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFFFFF00' } // Yellow background
-          };
-          // Track the value for header coloring (store original numeric value)
-          checkSumValues.mwh.push(numericValue);
-        } else {
-          // Apply light gray background (#f2f2f2) if zero
-          cell.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'F2F2F2' } // Light gray background
-          };
-        }
-      }
-
-      // Apply background color to Total Share column (rows 10-12)
-      if (isTotal) {
-        cell.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: 'F2F2F2' } // Light gray background
-        };
-      }
-
+      // Apply color to value cells based on column
       if (colLetter === 'D') {
         cell.fill = {
           type: 'pattern',
           pattern: 'solid',
           fgColor: { argb: '92D050' } // Green for main client          
         };
-      } else if (!isTotal && !isCheckSumMWH && colIndex >= 1 && colIndex < values.length - 2) {
+      } else if (colIndex >= 1 && colIndex < values.length - 2) {
         // Find which subclient/partclient this column belongs to
         let color;
         let clientIndex = 0;
@@ -2746,69 +2534,6 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       }
     });
   });
-
-  // Apply yellow background to headers if any CHECK-SUM values are non-zero
-  const hasNonZeroMWH = checkSumValues.mwh.some(val => Math.abs(val) > 0.0001);
-
-  // Apply yellow background to "EXCESS INJECTION PPA ***" header (rows 6-8) if any non-zero values
-  // Otherwise apply light gray background (#f2f2f2)
-  if (hasNonZeroMWH) {
-    checkCellRow6.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFFFFF00' } // Yellow background
-    };
-  } else {
-    checkCellRow6.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'F2F2F2' } // Light gray background
-    };
-  }
-
-  // Apply yellow background to MWH header (row 9) if any MWH values are non-zero
-  // Otherwise apply light gray background (#f2f2f2)
-  if (hasNonZeroMWH) {
-    mwhCell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFFFFF00' } // Yellow background
-    };
-  } else {
-    mwhCell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'F2F2F2' } // Light gray background
-    };
-  }
-
-  // Add background color and border to Total Share column row 13
-  const totalCellRow13 = masterdataSheet.getCell(`${totalCol}13`);
-  totalCellRow13.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'F2F2F2' } // Light gray background
-  };
-  totalCellRow13.border = {
-    top: { style: 'thin' },
-    left: { style: 'thin' },
-    bottom: { style: 'thin' },
-    right: { style: 'thin' }
-  };
-
-  // Add background color and border to CHECK-SUM column row 13 (MWH only, KWH removed)
-  const checkSumMWHCellRow13 = masterdataSheet.getCell(`${checkSumCol}13`);
-  checkSumMWHCellRow13.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'F2F2F2' } // Light gray background
-  };
-  checkSumMWHCellRow13.border = {
-    top: { style: 'thin' },
-    left: { style: 'thin' },
-    bottom: { style: 'thin' },
-    right: { style: 'thin' }
-  };
 
   // ===== DETAILED TIME BLOCK DATA =====
   const timeBlockStartRow = 13;
@@ -2982,16 +2707,19 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
           }
         });
 
-        // Calculate CHECK-SUM: Main client value - Sum of all subclients
-        const checkSumMWH = mainValue - subClientsSum;
-
-        // CHECK-SUM MWH column - 4 decimal places (KWH removed from UI)
-        const checkSumMWHCell = masterdataSheet.getCell(`${checkSumCol}${rowIndex}`);
-        checkSumMWHCell.value = checkSumMWH;
-        checkSumMWHCell.numFmt = '0.00';
-        checkSumMWHCell.font = { size: 10, name: 'Times New Roman' };
-        checkSumMWHCell.alignment = { horizontal: 'center', vertical: 'middle' };
-        // No border for CHECK-SUM column starting from row 14
+        // CHECK-SUM value (original styling)
+        const checkSumCell = masterdataSheet.getCell(`${checkSumCol}${rowIndex}`);
+        const checkSumValue = subClientsSum - mainValue;
+        checkSumCell.value = checkSumValue;
+        checkSumCell.numFmt = '0.0';
+        checkSumCell.font = { size: 10, name: 'Times New Roman' };
+        checkSumCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        checkSumCell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' }
+        };
 
         // Style the row with font size 10 (original styling)
         for (let col = 1; col <= timeBlockHeaders.length; col++) {
@@ -3008,10 +2736,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       }
     });
   }
-  // ===== ADD thin BORDER AROUND MAIN DATA SECTION (ROWS 5-12) =====
+  // ===== ADD MEDIUM BORDER AROUND MAIN DATA SECTION (ROWS 5-12) =====
   const lastDataCol = checkSumCol; // This is the CHECK-SUM column
 
-  // Apply thin border around the entire section
+  // Apply medium border around the entire section
   for (let row = 5; row <= 12; row++) {
     for (let col = 1; col <= lastDataCol.charCodeAt(0) - 64; col++) {
       const colLetter = String.fromCharCode(64 + col);
@@ -3022,15 +2750,15 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
       // Determine border style based on position
       const borderStyles = {
-        top: row === 5 || isSpecialColumn ? 'thin' : 'thin',
-        bottom: row === 12 ? 'thin' : 'thin',
-        left: col === 1 ? 'thin' : 'thin',
-        right: colLetter === lastDataCol ? 'thin' : 'thin'
+        top: row === 5 || isSpecialColumn ? 'medium' : 'thin',
+        bottom: row === 12 ? 'medium' : 'thin',
+        left: col === 1 ? 'medium' : 'medium',
+        right: colLetter === lastDataCol ? 'medium' : 'thin'
       };
 
-      // For special columns, ensure top border is thin from rows 5-12
+      // For special columns, ensure top border is medium from rows 5-12
       if (isSpecialColumn && row >= 5 && row <= 12) {
-        borderStyles.top = 'thin';
+        borderStyles.top = 'medium';
       }
 
       cell.border = {
@@ -3042,26 +2770,26 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     }
   }
 
-  // Special case for the blank row (row 9) - ensure it has thin borders on all sides
+  // Special case for the blank row (row 9) - ensure it has medium borders on all sides
   for (let col = 1; col <= lastDataCol.charCodeAt(0) - 64; col++) {
     const colLetter = String.fromCharCode(64 + col);
     const cell = masterdataSheet.getCell(`${colLetter}9`);
 
     cell.border = {
-      top: { style: 'thin', color: { argb: '000000' } },
-      left: { style: 'thin', color: { argb: '000000' } },
-      bottom: { style: 'thin', color: { argb: '000000' } },
-      right: { style: 'thin', color: { argb: '000000' } }
+      top: { style: 'medium', color: { argb: '000000' } },
+      left: { style: 'medium', color: { argb: '000000' } },
+      bottom: { style: 'medium', color: { argb: '000000' } },
+      right: { style: 'medium', color: { argb: '000000' } }
     };
   }
 
-  // Explicitly set thin top borders for special columns (rows 5-12)
+  // Explicitly set medium top borders for special columns (rows 5-12)
   ['D', totalCol, checkSumCol].forEach(colLetter => {
     for (let row = 5; row <= 12; row++) {
       const cell = masterdataSheet.getCell(`${colLetter}${row}`);
       cell.border = {
         ...cell.border,
-        top: { style: 'thin', color: { argb: '000000' } }
+        top: { style: 'medium', color: { argb: '000000' } }
       };
     }
   });
@@ -3119,10 +2847,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     fgColor: { argb: '92D050' } // Green background
   };
   titleCell.border = {
-    top: { style: 'thin', color: { argb: '000000' } },
-    left: { style: 'thin', color: { argb: '000000' } },
-    bottom: { style: 'thin', color: { argb: '000000' } },
-    right: { style: 'thin', color: { argb: '000000' } }
+    top: { style: 'medium', color: { argb: '000000' } },
+    left: { style: 'medium', color: { argb: '000000' } },
+    bottom: { style: 'medium', color: { argb: '000000' } },
+    right: { style: 'medium', color: { argb: '000000' } }
   };
 
   const dateCell1 = worksheet.getCell('J2');
@@ -3136,10 +2864,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     fgColor: { argb: 'FFFF00' } // Yellow background
   };
   dateCell1.border = {
-    top: { style: 'thin', color: { argb: '000000' } },
-    left: { style: 'thin', color: { argb: '000000' } },
-    bottom: { style: 'thin', color: { argb: '000000' } },
-    right: { style: 'thin', color: { argb: '000000' } }
+    top: { style: 'medium', color: { argb: '000000' } },
+    left: { style: 'medium', color: { argb: '000000' } },
+    bottom: { style: 'medium', color: { argb: '000000' } },
+    right: { style: 'medium', color: { argb: '000000' } }
   };
 
 
@@ -3153,10 +2881,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     fgColor: { argb: 'FFFF00' } // Yellow background
   };
   dateCell2.border = {
-    top: { style: 'thin', color: { argb: '000000' } },
-    left: { style: 'thin', color: { argb: '000000' } },
-    bottom: { style: 'thin', color: { argb: '000000' } },
-    right: { style: 'thin', color: { argb: '000000' } }
+    top: { style: 'medium', color: { argb: '000000' } },
+    left: { style: 'medium', color: { argb: '000000' } },
+    bottom: { style: 'medium', color: { argb: '000000' } },
+    right: { style: 'medium', color: { argb: '000000' } }
   };
 
   worksheet.insertRow(3);
@@ -3195,10 +2923,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       fgColor: { argb: 'D9D9D9' } // Light gray background
     };
     cell.border = {
-      top: { style: 'thin' },
-      left: { style: 'thin' },
-      bottom: { style: 'thin' },
-      right: { style: 'thin' }
+      top: { style: 'medium' },
+      left: { style: 'medium' },
+      bottom: { style: 'medium' },
+      right: { style: 'medium' }
     };
   });
 
@@ -3313,10 +3041,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         fgColor: { argb: 'D9D9D9' } // Light gray background
       };
       cell.border = {
-        top: { style: 'thin' },
-        left: { style: 'thin' },
-        bottom: { style: 'thin' },
-        right: { style: 'thin' }
+        top: { style: 'medium' },
+        left: { style: 'medium' },
+        bottom: { style: 'medium' },
+        right: { style: 'medium' }
       };
     });
 
@@ -3448,12 +3176,12 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         right: { style: 'thin' }
       };
     }
-    // ===== ADD thin BORDER AROUND ENTIRE TABLE =====
+    // ===== ADD MEDIUM BORDER AROUND ENTIRE TABLE =====
     const firstDataRow = 4;
     const lastDataRows = 5 + dataRowsLosses.length + 1; // Includes header and total row
     const lastCol = 'P';
 
-    // Apply thin border around the entire table
+    // Apply medium border around the entire table
     for (let row = firstDataRow; row <= lastDataRows; row++) {
       for (let col = 1; col <= lastCol.charCodeAt(0) - 64; col++) {
         const colLetter = String.fromCharCode(64 + col);
@@ -3461,10 +3189,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
         // Determine border style based on position
         const borderStyles = {
-          top: row === firstDataRow ? 'thin' : 'thin',
-          bottom: row === lastDataRows ? 'thin' : 'thin',
-          left: col === 1 ? 'thin' : 'thin',
-          right: colLetter === lastCol ? 'thin' : 'thin'
+          top: row === firstDataRow ? 'medium' : 'thin',
+          bottom: row === lastDataRows ? 'medium' : 'thin',
+          left: col === 1 ? 'medium' : 'thin',
+          right: colLetter === lastCol ? 'medium' : 'thin'
         };
 
         cell.border = {
@@ -3481,23 +3209,23 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       const cell = worksheet.getCell(mergeRange.split(':')[0]);
       cell.border = {
         ...cell.border,
-        top: { style: 'thin', color: { argb: '000000' } },
-        left: { style: 'thin', color: { argb: '000000' } },
-        bottom: { style: 'thin', color: { argb: '000000' } },
-        right: { style: 'thin', color: { argb: '000000' } }
+        top: { style: 'medium', color: { argb: '000000' } },
+        left: { style: 'medium', color: { argb: '000000' } },
+        bottom: { style: 'medium', color: { argb: '000000' } },
+        right: { style: 'medium', color: { argb: '000000' } }
       };
     });
 
-    // Special handling for total row to ensure all borders are thin
+    // Special handling for total row to ensure all borders are medium
     for (let col = 1; col <= lastCol.charCodeAt(0) - 64; col++) {
       const colLetter = String.fromCharCode(64 + col);
       const cell = worksheet.getCell(`${colLetter}${lastDataRows}`);
 
       cell.border = {
-        top: { style: 'thin', color: { argb: '000000' } },
-        left: { style: col === 1 ? 'thin' : 'thin', color: { argb: '000000' } },
-        bottom: { style: 'thin', color: { argb: '000000' } },
-        right: { style: colLetter === lastCol ? 'thin' : 'thin', color: { argb: '000000' } }
+        top: { style: 'medium', color: { argb: '000000' } },
+        left: { style: col === 1 ? 'medium' : 'thin', color: { argb: '000000' } },
+        bottom: { style: 'medium', color: { argb: '000000' } },
+        right: { style: colLetter === lastCol ? 'medium' : 'thin', color: { argb: '000000' } }
       };
     }
 
@@ -3505,66 +3233,66 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     const firstSubclientDataRow = 6;
     const lastSubclientDataRow = 5 + dataRowsLosses.length; // Last row of subclient data
 
-    // Columns that need thin left border (Gross Injected Units - C)
-    const columnsWiththinLeftBorder = ['C'];
+    // Columns that need medium left border (Gross Injected Units - C)
+    const columnsWithMediumLeftBorder = ['C'];
 
-    // Columns that need thin right border (Overall Gross Drawl - F, Net Drawl - H, 
+    // Columns that need medium right border (Overall Gross Drawl - F, Net Drawl - H, 
     // Difference in Drawl - J, % Weightage Drawl - L)
-    const columnsWiththinRightBorder = ['F', 'H', 'J', 'L'];
+    const columnsWithMediumRightBorder = ['F', 'H', 'J', 'L'];
 
-    // Apply thin borders to specified columns for all data rows
+    // Apply medium borders to specified columns for all data rows
     for (let currentRow = firstSubclientDataRow; currentRow <= lastSubclientDataRow; currentRow++) {
-      // thin left borders
-      columnsWiththinLeftBorder.forEach(columnLetter => {
+      // Medium left borders
+      columnsWithMediumLeftBorder.forEach(columnLetter => {
         const targetCell = worksheet.getCell(`${columnLetter}${currentRow}`);
         targetCell.border = {
           ...targetCell.border,
-          left: { style: 'thin', color: { argb: '000000' } }
+          left: { style: 'medium', color: { argb: '000000' } }
         };
       });
 
-      // thin right borders
-      columnsWiththinRightBorder.forEach(columnLetter => {
+      // Medium right borders
+      columnsWithMediumRightBorder.forEach(columnLetter => {
         const targetCell = worksheet.getCell(`${columnLetter}${currentRow}`);
         targetCell.border = {
           ...targetCell.border,
-          right: { style: 'thin', color: { argb: '000000' } }
+          right: { style: 'medium', color: { argb: '000000' } }
         };
       });
     }
 
     // Also update the header row (row 5) for these columns
-    columnsWiththinLeftBorder.forEach(columnLetter => {
+    columnsWithMediumLeftBorder.forEach(columnLetter => {
       const headerCell = worksheet.getCell(`${columnLetter}5`);
       headerCell.border = {
         ...headerCell.border,
-        left: { style: 'thin', color: { argb: '000000' } }
+        left: { style: 'medium', color: { argb: '000000' } }
       };
     });
 
-    columnsWiththinRightBorder.forEach(columnLetter => {
+    columnsWithMediumRightBorder.forEach(columnLetter => {
       const headerCell = worksheet.getCell(`${columnLetter}5`);
       headerCell.border = {
         ...headerCell.border,
-        right: { style: 'thin', color: { argb: '000000' } }
+        right: { style: 'medium', color: { argb: '000000' } }
       };
     });
 
     // Update the total row borders for these columns
     const totalRowNumber = 5 + dataRowsLosses.length + 1;
-    columnsWiththinLeftBorder.forEach(columnLetter => {
+    columnsWithMediumLeftBorder.forEach(columnLetter => {
       const totalRowCell = worksheet.getCell(`${columnLetter}${totalRowNumber}`);
       totalRowCell.border = {
         ...totalRowCell.border,
-        left: { style: 'thin', color: { argb: '000000' } }
+        left: { style: 'medium', color: { argb: '000000' } }
       };
     });
 
-    columnsWiththinRightBorder.forEach(columnLetter => {
+    columnsWithMediumRightBorder.forEach(columnLetter => {
       const totalRowCell = worksheet.getCell(`${columnLetter}${totalRowNumber}`);
       totalRowCell.border = {
         ...totalRowCell.border,
-        right: { style: 'thin', color: { argb: '000000' } }
+        right: { style: 'medium', color: { argb: '000000' } }
       };
     });
     // Merge the Total cell across columns
@@ -3611,10 +3339,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       fgColor: { argb: "FFFF00" }
     };
     abtHeaderCell.border = {
-      top: { style: "thin", color: { argb: '000000' } },
-      left: { style: "thin", color: { argb: '000000' } },
-      bottom: { style: "thin", color: { argb: '000000' } },
-      right: { style: "thin", color: { argb: '000000' } }
+      top: { style: "medium", color: { argb: '000000' } },
+      left: { style: "medium", color: { argb: '000000' } },
+      bottom: { style: "medium", color: { argb: '000000' } },
+      right: { style: "medium", color: { argb: '000000' } }
     };
 
     // SLDC APPROVED DATA header
@@ -3628,10 +3356,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       fgColor: { argb: "92D050" }
     };
     sldcHeaderCell.border = {
-      top: { style: "thin", color: { argb: '000000' } },
-      left: { style: "thin", color: { argb: '000000' } },
-      bottom: { style: "thin", color: { argb: '000000' } },
-      right: { style: "thin", color: { argb: '000000' } }
+      top: { style: "medium", color: { argb: '000000' } },
+      left: { style: "medium", color: { argb: '000000' } },
+      bottom: { style: "medium", color: { argb: '000000' } },
+      right: { style: "medium", color: { argb: '000000' } }
     };
 
     // Client colors array extended to support up to 10 subclients
@@ -3683,10 +3411,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         fgColor: { argb: clientColors[index % clientColors.length] },
       };
       clientHeaderCell.border = {
-        top: { style: "thin", color: { argb: '000000' } },
-        left: { style: "thin", color: { argb: '000000' } },
-        bottom: { style: "thin", color: { argb: '000000' } },
-        right: { style: "thin", color: { argb: '000000' } }
+        top: { style: "medium", color: { argb: '000000' } },
+        left: { style: "medium", color: { argb: '000000' } },
+        bottom: { style: "medium", color: { argb: '000000' } },
+        right: { style: "medium", color: { argb: '000000' } }
       };
 
       // Set column widths for the additional columns
@@ -3723,10 +3451,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       fgColor: { argb: "FFFF00" },
     };
     summaryHeaderCell.border = {
-      top: { style: "thin" },
-      left: { style: "thin" },
-      bottom: { style: "thin" },
-      right: { style: "thin" },
+      top: { style: "medium" },
+      left: { style: "medium" },
+      bottom: { style: "medium" },
+      right: { style: "medium" },
     };
 
     // D column - merge and style
@@ -3741,10 +3469,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       fgColor: { argb: "92D050" },
     };
     totalColDCell.border = {
-      top: { style: "thin" },
-      left: { style: "thin" },
-      bottom: { style: "thin" },
-      right: { style: "thin" },
+      top: { style: "medium" },
+      left: { style: "medium" },
+      bottom: { style: "medium" },
+      right: { style: "medium" },
     };
 
     // Clear the cell below (just in case)
@@ -3774,10 +3502,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
           fgColor: { argb: color },
         };
         totalCell.border = {
-          top: { style: "thin" },
-          left: { style: "thin" },
-          bottom: { style: "thin" },
-          right: { style: "thin" },
+          top: { style: "medium" },
+          left: { style: "medium" },
+          bottom: { style: "medium" },
+          right: { style: "medium" },
         };
 
         // Move to the next column for partclients
@@ -3843,10 +3571,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
           fgColor: { argb: color },
         };
         totalCell.border = {
-          top: { style: "thin" },
-          left: { style: "thin" },
-          bottom: { style: "thin" },
-          right: { style: "thin" },
+          top: { style: "medium" },
+          left: { style: "medium" },
+          bottom: { style: "medium" },
+          right: { style: "medium" },
         };
 
         // Move to next column for "NET Total after Losses"
