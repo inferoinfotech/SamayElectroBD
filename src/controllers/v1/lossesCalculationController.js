@@ -1051,6 +1051,23 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
   const netInjectedValue = grossInjectedValue + grossDrawlValue;
 
+  // Calculate totals (same as gray totals row) for green box
+  let totalGrossInjectedForGreenBox = 0;
+  let totalGrossDrawlForGreenBox = 0;
+  lossesCalculationData.subClient.forEach((subClient) => {
+    const sc = subClient.subClientsData || {};
+    if (sc.partclient && sc.partclient.length > 0) {
+      sc.partclient.forEach((pc) => {
+        totalGrossInjectedForGreenBox += pc.grossInjectionMWHAfterLosses || 0;
+        totalGrossDrawlForGreenBox += pc.drawlMWHAfterLosses || 0;
+      });
+    } else {
+      totalGrossInjectedForGreenBox += sc.grossInjectionMWHAfterLosses || 0;
+      totalGrossDrawlForGreenBox += sc.drawlMWHAfterLosses || 0;
+    }
+  });
+  const totalNetInjectedForGreenBox = totalGrossInjectedForGreenBox + totalGrossDrawlForGreenBox;
+
   // Rows 7–12 (merged A/B/C blocks)
   [7, 8, 9, 10, 11, 12].forEach((r) => (summarySheet.getRow(r).height = 45));
   const greenFill = { type: "pattern", pattern: "solid", fgColor: { argb: "92D050" } };
@@ -1067,7 +1084,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   a7.value = `Gross Injected Units to ${lossesCalculationData.mainClient.mainClientDetail.subTitle}`;
   a7.font = labelFont; a7.alignment = leftMidWrap; a7.fill = greenFill; a7.border = thinBorder;
   const c7 = summarySheet.getCell("C7");
-  c7.value = displayExactValue(grossInjectedValue);
+  c7.value = displayExactValue(totalGrossInjectedForGreenBox);
   c7.font = valueFont; c7.alignment = centerMid; c7.fill = greenFill; c7.border = thinBorder;
 
   // A9:B10 / C9:C10 - Gross Drawl
@@ -1077,7 +1094,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   a9.value = `Gross Drawl Units from ${lossesCalculationData.mainClient.mainClientDetail.subTitle}`;
   a9.font = labelFont; a9.alignment = leftMidWrap; a9.fill = greenFill; a9.border = thinBorder;
   const c9 = summarySheet.getCell("C9");
-  c9.value = displayExactValue(grossDrawlValue);
+  c9.value = displayExactValue(totalGrossDrawlForGreenBox);
   c9.font = valueFont; c9.alignment = centerMid; c9.fill = greenFill; c9.border = thinBorder;
 
   // A11:B12 / C11:C12 - Net Injected
@@ -1087,7 +1104,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   a11.value = `Net Injected Units to ${lossesCalculationData.mainClient.mainClientDetail.subTitle}`;
   a11.font = labelFont; a11.alignment = leftMidWrap; a11.fill = greenFill; a11.border = thinBorder;
   const c11 = summarySheet.getCell("C11");
-  c11.value = displayExactValue(netInjectedValue);
+  c11.value = displayExactValue(totalNetInjectedForGreenBox);
   c11.font = valueFont; c11.alignment = centerMid; c11.fill = greenFill; c11.border = thinBorder;
 
   // D7..I12 detail strip (ABT/Voltage/CTPT/CT/PT/MF)
