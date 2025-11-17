@@ -2886,9 +2886,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         // Calculate CHECK-SUM: Main client value - Sum of all subclients
         const checkSumMWH = mainValue - subClientsSum;
 
-        // CHECK-SUM MWH column - 4 decimal places (KWH removed from UI)
+        // CHECK-SUM MWH column - Round value to 3 decimal places (KWH removed from UI)
         const checkSumMWHCell = masterdataSheet.getCell(`${checkSumCol}${rowIndex}`);
-        checkSumMWHCell.value = checkSumMWH;
+        checkSumMWHCell.value = parseFloat(checkSumMWH.toFixed(3));
         checkSumMWHCell.numFmt = '0.00';
         checkSumMWHCell.font = { size: 10, name: 'Times New Roman' };
         checkSumMWHCell.alignment = { horizontal: 'center', vertical: 'middle' };
