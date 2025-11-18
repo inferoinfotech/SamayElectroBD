@@ -227,15 +227,15 @@ const generateLossesCalculation = async (req, res) => {
       mainEntry?.approvedInjection != null
         ? pluckNumber(mainEntry.approvedInjection, null)
         : SLDCGROSSINJECTION != null
-        ? pluckNumber(SLDCGROSSINJECTION, null)
-        : null;
+          ? pluckNumber(SLDCGROSSINJECTION, null)
+          : null;
 
     const approvedDrawl =
       mainEntry?.approvedDrawl != null
         ? pluckNumber(mainEntry.approvedDrawl, null)
         : SLDCGROSSDRAWL != null
-        ? pluckNumber(SLDCGROSSDRAWL, null)
-        : null;
+          ? pluckNumber(SLDCGROSSDRAWL, null)
+          : null;
 
     const discomTargetsRaw = mainEntry?.discom || {};
     const discomKeys = ["DGVCL", "MGVCL", "PGVCL", "UGVCL", "TAECO", "TSECO", "TEL"];
@@ -1082,7 +1082,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   sldcLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const totalLabelCell = summarySheet.getCell("C6");
-  totalLabelCell.value = "Total (MWh)";
+  totalLabelCell.value = "Total";
   totalLabelCell.font = { bold: true, size: 10, name: "Times New Roman" };
   totalLabelCell.alignment = { horizontal: "center", vertical: "middle" };
   totalLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "92D050" } };
@@ -1475,37 +1475,45 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   // Build rows 14 (names), 15 (units), 16 (percentages)
   for (let i = 0; i < discoms.length; i++) {
     const col = colFromIndex(i);
-    const isPink = (i === 0) || (i === discoms.length - 1); // DGVCL and TOTAL columns pink
+
+    // Check if cell has data (non-zero) - used for all rows
+    const hasData = values[i] > 0;
 
     // Row 14: DISCOM Name
+    // If cell has data (non-zero), use pink background, otherwise yellow
+    const nameCellBgColor = hasData ? lightPink : yellow;
     const nameCell = summarySheet.getCell(`${col}14`);
     nameCell.value = discoms[i];
     nameCell.font = { bold: true, size: 10, name: "Times New Roman" };
     nameCell.alignment = { horizontal: "center", vertical: "middle" };
-    nameCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: isPink ? lightPink : yellow } };
+    nameCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: nameCellBgColor } };
     nameCell.border = {
       top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" },
       right: { style: i === discoms.length - 1 ? "thin" : "thin" },
     };
 
     // Row 15: TOTAL Units (3-decimals as text)
+    // If cell has data (non-zero), use pink background, otherwise yellow
+    const valCellBgColor = hasData ? lightPink : yellow;
     const valCell = summarySheet.getCell(`${col}15`);
     valCell.value = displayExactValue(values[i]); // uses your existing helper
     valCell.font = { bold: true, size: 10, name: "Times New Roman" };
     valCell.alignment = { horizontal: "center", vertical: "middle" };
-    valCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: isPink ? lightPink : yellow } };
+    valCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: valCellBgColor } };
     valCell.border = {
       top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" },
       right: { style: i === discoms.length - 1 ? "thin" : "thin" },
     };
 
     // Row 16: Percentage (2-decimals + %)
+    // If cell has data (non-zero), use pink background, otherwise yellow
     const pct = totalUnits > 0 ? (values[i] / totalUnits) * 100 : 0;
+    const pctCellBgColor = hasData ? lightPink : yellow;
     const pctCell = summarySheet.getCell(`${col}16`);
     pctCell.value = `${pct.toFixed(2)}%`;
     pctCell.font = { bold: true, size: 10, name: "Times New Roman" };
     pctCell.alignment = { horizontal: "center", vertical: "middle" };
-    pctCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: isPink ? lightPink : yellow } };
+    pctCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: pctCellBgColor } };
     pctCell.border = {
       top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" },
       right: { style: i === discoms.length - 1 ? "thin" : "thin" },
@@ -1531,13 +1539,13 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   const tableHeaders = [
     { cell: `A${headerRow}`, value: "Sr. No.", bgColor: "D9D9D9", borderRight: "thin", borderLeft: "thin" },
     { cell: `B${headerRow}`, value: "HT Consumer Name", bgColor: "D9D9D9" },
-    { cell: `C${headerRow}`, value: "HT Consumer No.", bgColor: "D9D9D9" },
+    { cell: `C${headerRow}`, value: "HT / LTMD Consumer No.", bgColor: "D9D9D9" },
     { cell: `D${headerRow}`, value: "Wheeling Division Office/Location", bgColor: "D9D9D9" },
     { cell: `E${headerRow}`, value: "Wheeling DISCOM", bgColor: "D9D9D9" },
     { cell: `F${headerRow}`, value: "Project Capacity (kW) (AC)", bgColor: "D9D9D9", borderRight: "thin" },
-    { cell: `G${headerRow}`, value: "Share in Gross Injected Units to S/S (MWh)", bgColor: "D9D9D9" },
-    { cell: `H${headerRow}`, value: "Share in Gross Drawl Units from S/S (MWh)", bgColor: "D9D9D9" },
-    { cell: `I${headerRow}`, value: "Net Injected Units to S/S (MWh)", bgColor: "D9D9D9" },
+    { cell: `G${headerRow}`, value: "Share in Gross Injected Units to S/S", bgColor: "D9D9D9" },
+    { cell: `H${headerRow}`, value: "Share in Gross Drawl Units from S/S", bgColor: "D9D9D9" },
+    { cell: `I${headerRow}`, value: "Net Injected Units to S/S", bgColor: "D9D9D9" },
     { cell: `J${headerRow}`, value: "% Weightage According to Gross Injecting", bgColor: "D9D9D9" },
   ];
 
@@ -1887,7 +1895,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
   summarySheet.getCell(`A${noteRow1}`).value = "Note:";
   summarySheet.getCell(`A${noteRow1}`).font = { bold: true, italic: true, size: 10, name: "Times New Roman" };
-  summarySheet.mergeCells(`B${noteRow1}:J${noteRow1}`);
+  summarySheet.mergeCells(`B${noteRow1}:K${noteRow1}`);
   const noteCell1 = summarySheet.getCell(`B${noteRow1}`);
   noteCell1.value = {
     richText: [
@@ -1897,7 +1905,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   };
 
   summarySheet.getCell(`A${noteRow2}`).value = "";
-  summarySheet.mergeCells(`B${noteRow2}:J${noteRow2}`);
+  summarySheet.mergeCells(`B${noteRow2}:K${noteRow2}`);
   const noteCell2 = summarySheet.getCell(`B${noteRow2}`);
   noteCell2.value = {
     richText: [
@@ -1909,7 +1917,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
   // Apply common formatting to both rows
   [noteRow1, noteRow2].forEach(row => {
-    for (let col = 1; col <= 10; col++) {
+    for (let col = 1; col <= 11; col++) {
       const cell = summarySheet.getCell(`${String.fromCharCode(64 + col)}${row}`);
       cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
       cell.border = {
@@ -1934,12 +1942,23 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       left: { style: 'thin' }
     };
 
-    // Right border (column J)
-    const rightCell = summarySheet.getCell(`J${row}`);
-    rightCell.border = {
-      ...rightCell.border,
-      right: { style: 'thin' }
-    };
+    // Right border (column J) - exclude rows 13, 17, and 24 (spacer rows)
+    if (row !== 13 && row !== 17 && row !== 24) {
+      const rightCell = summarySheet.getCell(`J${row}`);
+      rightCell.border = {
+        ...rightCell.border,
+        right: { style: 'thin' }
+      };
+    }
+
+    // Right border (column K) for note rows (since notes extend to column K)
+    if (row === noteRow1 || row === noteRow2) {
+      const rightCellK = summarySheet.getCell(`K${row}`);
+      rightCellK.border = {
+        ...rightCellK.border,
+        right: { style: 'thin' }
+      };
+    }
   }
 
   // Apply top border to first row
@@ -1962,6 +1981,45 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     };
   }
 
+  // Add complete outer border around entire table (A2 to K{lastDataRow})
+  // Top border: A2 to K2
+  for (let col = 1; col <= 11; col++) {
+    const colChar = String.fromCharCode(64 + col);
+    const topCell = summarySheet.getCell(`${colChar}${firstDataRow}`);
+    topCell.border = {
+      ...topCell.border,
+      top: { style: 'thin' }
+    };
+  }
+
+  // Bottom border: A{lastDataRow} to K{lastDataRow}
+  for (let col = 1; col <= 11; col++) {
+    const colChar = String.fromCharCode(64 + col);
+    const bottomCell = summarySheet.getCell(`${colChar}${lastDataRow}`);
+    bottomCell.border = {
+      ...bottomCell.border,
+      bottom: { style: 'thin' }
+    };
+  }
+
+  // Left border: A2 to A{lastDataRow}
+  for (let row = firstDataRow; row <= lastDataRow; row++) {
+    const leftCell = summarySheet.getCell(`A${row}`);
+    leftCell.border = {
+      ...leftCell.border,
+      left: { style: 'thin' }
+    };
+  }
+
+  // Right border: K2 to K{lastDataRow} (complete outer border)
+  for (let row = firstDataRow; row <= lastDataRow; row++) {
+    const rightCell = summarySheet.getCell(`K${row}`);
+    rightCell.border = {
+      ...rightCell.border,
+      right: { style: 'thin' }
+    };
+  }
+
   // Special handling for merged cells to ensure borders are visible
   const mergedAreas = [
     'A2:C2', 'D2:J2',   // Title row
@@ -1971,7 +2029,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     'A6:B6', 'A7:B7', 'A8:B8', 'A9:B9', 'A10:C10', 'A11:B11', 'A12:B12', // Left merged cells
     'A14:J14',          // Table headers
     `A${totalRowNum}:E${totalRowNum}`, // Total label
-    `B${noteRow1}:J${noteRow1}`, `B${noteRow2}:J${noteRow2}` // Note rows
+    `B${noteRow1}:K${noteRow1}`, `B${noteRow2}:K${noteRow2}` // Note rows
   ];
 
   mergedAreas.forEach(merge => {
@@ -2073,8 +2131,8 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     right: { style: 'thin', color: { argb: '000000' } }
   };
 
-  // Date range from H3:J3 (will be extended later to include CHECK-SUM columns)
-  masterdataSheet.mergeCells('H3:J3');
+  // Date range from H3:I3 (will be extended later to include CHECK-SUM columns)
+  masterdataSheet.mergeCells('H3:I3');
   const dateRangeCell = masterdataSheet.getCell('H3');
   dateRangeCell.value = `01-${monthStr}-${lossesCalculationData.year} to ${lastDay}-${monthStr}-${lossesCalculationData.year}`;
   dateRangeCell.font = {
@@ -2098,7 +2156,6 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
   masterdataSheet.getColumn('H').width = 14;
   masterdataSheet.getColumn('I').width = 14;
-  masterdataSheet.getColumn('J').width = 14;
 
   // Blank row (row 4)
   masterdataSheet.getRow(4).height = 15; // Slightly more spacing than your original 5
@@ -2401,7 +2458,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   // Total DGVCL Share (merged from row 5 to 8)
   masterdataSheet.mergeCells(`${totalCol}5:${totalCol}8`);
   const totalCell = masterdataSheet.getCell(`${totalCol}5`);
-  totalCell.value = 'Total DGVCL Share (MWh)';
+  totalCell.value = 'Total DGVCL Share';
   totalCell.font = { bold: true, size: 10, name: 'Times New Roman' };
   totalCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
   totalCell.fill = {
@@ -2479,22 +2536,8 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
   masterdataSheet.getColumn(checkSumCol).width = 15;
 
-  // Extend row 3 date range merge to include CHECK-SUM column
-  // First unmerge the existing H3:J3, then merge from H3 to checkSumCol
-  try {
-    masterdataSheet.unMergeCells('H3:J3');
-  } catch (e) {
-    // If already unmerged or doesn't exist, continue
-  }
-  masterdataSheet.mergeCells(`H3:${checkSumCol}3`);
-  // Update the border for the extended merged cell
-  const dateRangeCellExtended = masterdataSheet.getCell('H3');
-  dateRangeCellExtended.border = {
-    top: { style: 'thin', color: { argb: '000000' } },
-    left: { style: 'thin', color: { argb: '000000' } },
-    bottom: { style: 'thin', color: { argb: '000000' } },
-    right: { style: 'thin', color: { argb: '000000' } }
-  };
+  // Date range stays fixed at H3:I3 only, does not extend with subclients
+  // No need to extend the merge - keep it at H3:I3
 
   // Data rows (GROSS INJECTION, GROSS DRAWL, NET INJECTION)
   const dataRows = [
@@ -3207,19 +3250,19 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   const subHeaders = [
     { cell: 'A5', value: 'Sr. No.' },
     { cell: 'B5', value: 'HT Consumer Name' },
-    { cell: 'C5', value: 'Gross Injected Units (MWH)' },
-    { cell: 'D5', value: 'Overall Gross Injected Units(MWH)' },
-    { cell: 'E5', value: 'Gross Drawl Units (MWH)' },
-    { cell: 'F5', value: 'Overall Gross Drawl Units (MWH)' },
-    { cell: 'G5', value: 'Gross Received Units at S/S (MWH)' },
-    { cell: 'H5', value: 'Net Drawl Units from S/S (MWH)' },
-    { cell: 'I5', value: 'Difference in Injected Units, Plant End to S/S End (MWH)' },
-    { cell: 'J5', value: 'Difference in Drawl Units, S/S End to Plant End (MWH)' },
+    { cell: 'C5', value: 'Gross Injected Units' },
+    { cell: 'D5', value: 'Overall Gross Injected Units' },
+    { cell: 'E5', value: 'Gross Drawl Units' },
+    { cell: 'F5', value: 'Overall Gross Drawl Units' },
+    { cell: 'G5', value: 'Gross Received Units at S/S' },
+    { cell: 'H5', value: 'Net Drawl Units from S/S' },
+    { cell: 'I5', value: 'Difference in Injected Units, Plant End to S/S End' },
+    { cell: 'J5', value: 'Difference in Drawl Units, S/S End to Plant End' },
     { cell: 'K5', value: '% Weightage According to Gross Injecting Units' },
     { cell: 'L5', value: '% Weightage According to Gross Drawl Units' },
-    { cell: 'M5', value: 'Losses in Injected Units (MWH)' },
+    { cell: 'M5', value: 'Losses in Injected Units' },
     { cell: 'N5', value: 'in %' },
-    { cell: 'O5', value: 'Losses in Drawl Units (MWH)' },
+    { cell: 'O5', value: 'Losses in Drawl Units' },
     { cell: 'P5', value: 'in %' }
   ];
 
@@ -3242,7 +3285,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   });
 
   // Adjust row height for headers
-  worksheet.getRow(5).height = 90; // Set height for header row
+  worksheet.getRow(5).height = 70; // Set height for header row
 
   // ===== DATA ROWS =====
   // Process sub client data for the table
@@ -3324,7 +3367,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     dataRowsLosses.forEach((rowData, index) => {
       const rowIndex = index + 6; // Starting from row 6
       const row = worksheet.getRow(rowIndex);
-      row.height = 80; // Set row height
+      row.height = 60; // Set row height
 
       let consumerName, grossInjection, drawl, weightageInjecting, weightageDrawl;
       let lossesInjectedUnits, inPercentageOfLossesInjectedUnits;
