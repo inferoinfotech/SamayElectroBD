@@ -960,6 +960,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   ).getDate();
 
   // Column widths - dynamic based on number of subclients
+  // Minimum K column (5 subclients) tak columns, but agar 6+ subclients hain to unke columns add karo
   const numSubClientsForCols = lossesCalculationData.subClient.length;
   const baseColumns = [
     { width: 7 },   // A - Sr. No.
@@ -968,11 +969,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     { width: 22 },  // D - Wheeling Division Office/Location
     { width: 22 },  // E - Wheeling Discom (Main Client)
   ];
-  // Add columns for each subclient (F onwards)
+  // Add columns for subclients (F onwards) - actual number of subclients
   const summarySubClientColumns = Array.from({ length: numSubClientsForCols }, () => ({ width: 22 }));
-  // Add one additional blank column after subclients
-  const additionalColumn = [{ width: 22 }];
-  summarySheet.columns = [...baseColumns, ...summarySubClientColumns, ...additionalColumn];
+  // Add additional gray columns to reach K column (only if <= 5 subclients)
+  // Formula: (5 - numSubClients) + 1 = number of gray columns needed to reach K
+  // Example: 3 subclients need 3 gray columns (I, J, K), 5 subclients need 1 gray column (K)
+  const numGrayColumns = numSubClientsForCols <= 5 ? ((5 - numSubClientsForCols) + 1) : 0;
+  const additionalColumns = Array.from({ length: numGrayColumns }, () => ({ width: 22 }));
+  summarySheet.columns = [...baseColumns, ...summarySubClientColumns, ...additionalColumns];
 
   // Helper for fixed 3-decimal text
   const displayExactValue = (value) => {
@@ -988,9 +992,12 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   // Row 1 spacer
   summarySheet.getRow(1).height = 15;
 
-  // Last dynamic column (kept for future use)
-  const lastColumnForClients = String.fromCharCode(69 + lossesCalculationData.subClient.length);
-  const lastColumnForHeader = lastColumnForClients;
+  // Calculate last column for merged cells - minimum K, but extend if subclients > 5
+  const numSubClientsForMerged = lossesCalculationData.subClient.length;
+  // Subclients start at F (70), so last subclient column = 70 + numSubClients - 1
+  // Minimum K (75), but if > 5 subclients, extend to last subclient column
+  const lastMergedColumn = numSubClientsForMerged <= 5 ? 75 : (70 + numSubClientsForMerged - 1);
+  const lastMergedColumnChar = String.fromCharCode(lastMergedColumn);
 
   // Row 2: Titles
   const titleRow = summarySheet.getRow(2);
@@ -1004,7 +1011,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   summaryTitleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "b4c6e7" } };
   summaryTitleCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
-  summarySheet.mergeCells("C2:K2");
+  summarySheet.mergeCells(`C2:${lastMergedColumnChar}2`);
   const companyCellSummary = summarySheet.getCell("C2");
   const acCapacityMwSummary = (
     (lossesCalculationData.mainClient.mainClientDetail.acCapacityKw || 0) / 1000
@@ -1027,7 +1034,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   monthLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "b4c6e7" } };
   monthLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
-  summarySheet.mergeCells("F3:K3");
+  summarySheet.mergeCells(`F3:${lastMergedColumnChar}3`);
   const monthValueCell = summarySheet.getCell("F3");
   monthValueCell.value = `${monthName}-${lossesCalculationData.year.toString().slice(-2)}`;
   monthValueCell.font = { bold: true, size: 18, name: "Times New Roman", color: { argb: "FF0000" } };
@@ -1047,7 +1054,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   periodLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "b4c6e7" } };
   periodLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
-  const periodEndColumn = "K";
+  const periodEndColumn = lastMergedColumnChar;
   summarySheet.mergeCells(`F4:${periodEndColumn}4`);
   const periodValueCell = summarySheet.getCell("F4");
   const startDate = `01-${monthStr}-${lossesCalculationData.year}`;
@@ -1061,7 +1068,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   // Row 5: CPP header line
   const cppRow = summarySheet.getRow(5);
   cppRow.height = 40;
-  summarySheet.mergeCells(`A5:K5`);
+  summarySheet.mergeCells(`A5:${lastMergedColumnChar}5`);
   const cppCell = summarySheet.getCell("A5");
   cppCell.value = `CPP CLIENTS - ${lossesCalculationData.mainClient.mainClientDetail.name.toUpperCase()} (Lead generator) SOLAR PLANT WITH INJECTION TO ${lossesCalculationData.mainClient.mainClientDetail.subTitle} AT 11kv, ABT METER: ${lossesCalculationData.mainClient.meterNumber}`;
   cppCell.font = { bold: true, size: 12, name: "Times New Roman", color: { argb: "0000cc" } };
@@ -1115,14 +1122,24 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cellRef.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   }
 
-  // Last column blank cell (after all subclients)
-  const lastCol = String.fromCharCode(70 + numSubClients); // Column after last subclient
-  const lastColCell = summarySheet.getCell(`${lastCol}6`);
-  lastColCell.value = "";
-  lastColCell.font = { bold: true, size: 10, name: "Times New Roman" };
-  lastColCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-  lastColCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  lastColCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Fill intermediate columns with gray background up to K column (if <= 5 subclients)
+  // Minimum K column (75) tak gray background, but agar 6+ subclients hain to extra gray column nahi dikhana
+  if (numSubClients <= 5) {
+    // Agar 5 ya kam subclients hain, to last subclient se K column tak sab columns me gray background dikhao
+    const lastSubClientCol = 70 + numSubClients; // Column after last subclient
+    const kColumn = 75; // K column
+    // Fill all columns from last subclient to K with gray
+    for (let colCode = lastSubClientCol; colCode <= kColumn; colCode++) {
+      const col = String.fromCharCode(colCode);
+      const cellRef = summarySheet.getCell(`${col}6`);
+      cellRef.value = "";
+      cellRef.font = { bold: true, size: 10, name: "Times New Roman" };
+      cellRef.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      cellRef.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
+      cellRef.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+    }
+  }
+  // Agar 6+ subclients hain, to extra gray column nahi dikhana
 
   // Totals (exact values)
   const mainClientGrossInjection = lossesCalculationData.mainClient.grossInjectionMWH || 0;
@@ -1219,7 +1236,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   const meterCells = [{ col: "E7", value: lossesCalculationData.mainClient.meterNumber || "", bgColor: "D9D9D9" }];
   const maxSubClients = lossesCalculationData.subClient.length;
   for (let i = 0; i < maxSubClients; i++) {
-    const colChar = String.fromCharCode(69 + i + 1); // F..J
+    const colChar = String.fromCharCode(69 + i + 1); // F onwards
     meterCells.push({
       col: `${colChar}7`,
       value: i < lossesCalculationData.subClient.length ? (lossesCalculationData.subClient[i].meterNumber || "") : "",
@@ -1235,14 +1252,22 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
 
-  // Blank cell after subclients (row 7)
-  const lastColRow7 = String.fromCharCode(70 + maxSubClients); // Column after last subclient
-  const lastColCellRow7 = summarySheet.getCell(`${lastColRow7}7`);
-  lastColCellRow7.value = "";
-  lastColCellRow7.font = { bold: true, size: 10, name: "Times New Roman" };
-  lastColCellRow7.alignment = { horizontal: "center", vertical: "middle" };
-  lastColCellRow7.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  lastColCellRow7.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Fill intermediate columns with gray background up to K column (row 7)
+  // Minimum K column (75) tak gray background, but agar 6+ subclients hain to extra gray column nahi dikhana
+  if (maxSubClients <= 5) {
+    const lastSubClientCol = 70 + maxSubClients; // Column after last subclient
+    const kColumn = 75; // K column
+    // Fill all columns from last subclient to K with gray
+    for (let colCode = lastSubClientCol; colCode <= kColumn; colCode++) {
+      const col = String.fromCharCode(colCode);
+      const cellRef = summarySheet.getCell(`${col}7`);
+      cellRef.value = "";
+      cellRef.font = { bold: true, size: 10, name: "Times New Roman" };
+      cellRef.alignment = { horizontal: "center", vertical: "middle" };
+      cellRef.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
+      cellRef.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+    }
+  }
 
   const voltageLabelCell = summarySheet.getCell("D8");
   voltageLabelCell.value = "Voltage Level";
@@ -1269,14 +1294,22 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
 
-  // Blank cell after subclients (row 8)
-  const lastColRow8 = String.fromCharCode(70 + maxSubClients);
-  const lastColCellRow8 = summarySheet.getCell(`${lastColRow8}8`);
-  lastColCellRow8.value = "";
-  lastColCellRow8.font = { size: 10, name: "Times New Roman" };
-  lastColCellRow8.alignment = { horizontal: "center", vertical: "middle" };
-  lastColCellRow8.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  lastColCellRow8.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Fill intermediate columns with gray background up to K column (row 8)
+  // Minimum K column (75) tak gray background, but agar 6+ subclients hain to extra gray column nahi dikhana
+  if (maxSubClients <= 5) {
+    const lastSubClientCol = 70 + maxSubClients; // Column after last subclient
+    const kColumn = 75; // K column
+    // Fill all columns from last subclient to K with gray
+    for (let colCode = lastSubClientCol; colCode <= kColumn; colCode++) {
+      const col = String.fromCharCode(colCode);
+      const cellRef = summarySheet.getCell(`${col}8`);
+      cellRef.value = "";
+      cellRef.font = { size: 10, name: "Times New Roman" };
+      cellRef.alignment = { horizontal: "center", vertical: "middle" };
+      cellRef.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
+      cellRef.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+    }
+  }
 
   const ctptLabelCell = summarySheet.getCell("D9");
   ctptLabelCell.value = "CTPT Sr.No.";
@@ -1303,14 +1336,22 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
 
-  // Blank cell after subclients (row 9)
-  const lastColRow9 = String.fromCharCode(70 + maxSubClients);
-  const lastColCellRow9 = summarySheet.getCell(`${lastColRow9}9`);
-  lastColCellRow9.value = "";
-  lastColCellRow9.font = { size: 10, name: "Times New Roman" };
-  lastColCellRow9.alignment = { horizontal: "center", vertical: "middle" };
-  lastColCellRow9.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  lastColCellRow9.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Fill intermediate columns with gray background up to K column (row 9)
+  // Minimum K column (75) tak gray background, but agar 6+ subclients hain to extra gray column nahi dikhana
+  if (maxSubClients <= 5) {
+    const lastSubClientCol = 70 + maxSubClients; // Column after last subclient
+    const kColumn = 75; // K column
+    // Fill all columns from last subclient to K with gray
+    for (let colCode = lastSubClientCol; colCode <= kColumn; colCode++) {
+      const col = String.fromCharCode(colCode);
+      const cellRef = summarySheet.getCell(`${col}9`);
+      cellRef.value = "";
+      cellRef.font = { size: 10, name: "Times New Roman" };
+      cellRef.alignment = { horizontal: "center", vertical: "middle" };
+      cellRef.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
+      cellRef.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+    }
+  }
 
   const ctRatioLabelCell = summarySheet.getCell("D10");
   ctRatioLabelCell.value = "CT Ratio (A/A)";
@@ -1337,14 +1378,22 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
 
-  // Blank cell after subclients (row 10)
-  const lastColRow10 = String.fromCharCode(70 + maxSubClients);
-  const lastColCellRow10 = summarySheet.getCell(`${lastColRow10}10`);
-  lastColCellRow10.value = "";
-  lastColCellRow10.font = { size: 10, name: "Times New Roman" };
-  lastColCellRow10.alignment = { horizontal: "center", vertical: "middle" };
-  lastColCellRow10.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  lastColCellRow10.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Fill intermediate columns with gray background up to K column (row 10)
+  // Minimum K column (75) tak gray background, but agar 6+ subclients hain to extra gray column nahi dikhana
+  if (maxSubClients <= 5) {
+    const lastSubClientCol = 70 + maxSubClients; // Column after last subclient
+    const kColumn = 75; // K column
+    // Fill all columns from last subclient to K with gray
+    for (let colCode = lastSubClientCol; colCode <= kColumn; colCode++) {
+      const col = String.fromCharCode(colCode);
+      const cellRef = summarySheet.getCell(`${col}10`);
+      cellRef.value = "";
+      cellRef.font = { size: 10, name: "Times New Roman" };
+      cellRef.alignment = { horizontal: "center", vertical: "middle" };
+      cellRef.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
+      cellRef.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+    }
+  }
 
   const ptRatioLabelCell = summarySheet.getCell("D11");
   ptRatioLabelCell.value = "PT Ratio (V/V)";
@@ -1371,14 +1420,22 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
 
-  // Blank cell after subclients (row 11)
-  const lastColRow11 = String.fromCharCode(70 + maxSubClients);
-  const lastColCellRow11 = summarySheet.getCell(`${lastColRow11}11`);
-  lastColCellRow11.value = "";
-  lastColCellRow11.font = { size: 10, name: "Times New Roman" };
-  lastColCellRow11.alignment = { horizontal: "center", vertical: "middle" };
-  lastColCellRow11.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  lastColCellRow11.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Fill intermediate columns with gray background up to K column (row 11)
+  // Minimum K column (75) tak gray background, but agar 6+ subclients hain to extra gray column nahi dikhana
+  if (maxSubClients <= 5) {
+    const lastSubClientCol = 70 + maxSubClients; // Column after last subclient
+    const kColumn = 75; // K column
+    // Fill all columns from last subclient to K with gray
+    for (let colCode = lastSubClientCol; colCode <= kColumn; colCode++) {
+      const col = String.fromCharCode(colCode);
+      const cellRef = summarySheet.getCell(`${col}11`);
+      cellRef.value = "";
+      cellRef.font = { size: 10, name: "Times New Roman" };
+      cellRef.alignment = { horizontal: "center", vertical: "middle" };
+      cellRef.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
+      cellRef.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+    }
+  }
 
   const mfLabelCell = summarySheet.getCell("D12");
   mfLabelCell.value = "MF";
@@ -1409,17 +1466,29 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
 
-  // Blank cell after subclients (row 12)
-  const lastColRow12 = String.fromCharCode(70 + maxSubClients);
-  const lastColCellRow12 = summarySheet.getCell(`${lastColRow12}12`);
-  lastColCellRow12.value = "";
-  lastColCellRow12.font = { size: 10, name: "Times New Roman" };
-  lastColCellRow12.alignment = { horizontal: "center", vertical: "middle" };
-  lastColCellRow12.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  lastColCellRow12.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Fill intermediate columns with gray background up to K column (row 12)
+  // Minimum K column (75) tak gray background, but agar 6+ subclients hain to extra gray column nahi dikhana
+  if (maxSubClients <= 5) {
+    const lastSubClientCol = 70 + maxSubClients; // Column after last subclient
+    const kColumn = 75; // K column
+    // Fill all columns from last subclient to K with gray
+    for (let colCode = lastSubClientCol; colCode <= kColumn; colCode++) {
+      const col = String.fromCharCode(colCode);
+      const cellRef = summarySheet.getCell(`${col}12`);
+      cellRef.value = "";
+      cellRef.font = { size: 10, name: "Times New Roman" };
+      cellRef.alignment = { horizontal: "center", vertical: "middle" };
+      cellRef.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
+      cellRef.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+    }
+  }
 
-  // Row 13 spacer before table
+  // Row 13 spacer before table - merged cell from A to last column
   summarySheet.getRow(13).height = 15;
+  summarySheet.mergeCells(`A13:${lastMergedColumnChar}13`);
+  const row13Cell = summarySheet.getCell("A13");
+  row13Cell.value = "";
+  row13Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFF" } };
 
   // === Rows 14–16: Overall Distributions to Distribution Licensee (DISCOM) ===
   // Left merged label block A14:B16
@@ -1528,10 +1597,51 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     };
   }
 
+  // Add blank yellow cells after TOTAL column (K) up to last subclient column for rows 14-16
+  // TOTAL is at column K (75, index 7 in discoms array), so we need to fill from L (76) onwards
+  const totalColCode = "K".charCodeAt(0); // 75 (TOTAL column)
+  const startColCode = totalColCode + 1; // L = 76 (after TOTAL)
+  if (lastMergedColumn >= startColCode) {
+    for (let colCode = startColCode; colCode <= lastMergedColumn; colCode++) {
+      const col = String.fromCharCode(colCode);
+
+      // Row 14: Blank yellow cell
+      const blankCell14 = summarySheet.getCell(`${col}14`);
+      blankCell14.value = "";
+      blankCell14.font = { bold: true, size: 10, name: "Times New Roman" };
+      blankCell14.alignment = { horizontal: "center", vertical: "middle" };
+      blankCell14.fill = { type: "pattern", pattern: "solid", fgColor: { argb: yellow } };
+      blankCell14.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+
+      // Row 15: Blank yellow cell
+      const blankCell15 = summarySheet.getCell(`${col}15`);
+      blankCell15.value = "";
+      blankCell15.font = { bold: true, size: 10, name: "Times New Roman" };
+      blankCell15.alignment = { horizontal: "center", vertical: "middle" };
+      blankCell15.fill = { type: "pattern", pattern: "solid", fgColor: { argb: yellow } };
+      blankCell15.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+
+      // Row 16: Blank yellow cell
+      const blankCell16 = summarySheet.getCell(`${col}16`);
+      blankCell16.value = "";
+      blankCell16.font = { bold: true, size: 10, name: "Times New Roman" };
+      blankCell16.alignment = { horizontal: "center", vertical: "middle" };
+      blankCell16.fill = { type: "pattern", pattern: "solid", fgColor: { argb: yellow } };
+      blankCell16.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+    }
+  }
+
   // Make row heights match your style
   summarySheet.getRow(14).height = 28;
   summarySheet.getRow(15).height = 28;
   summarySheet.getRow(16).height = 28;
+
+  // Row 17 spacer before table - merged cell from A to last column
+  summarySheet.getRow(17).height = 15;
+  summarySheet.mergeCells(`A17:${lastMergedColumnChar}17`);
+  const row17Cell = summarySheet.getCell("A17");
+  row17Cell.value = "";
+  row17Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFF" } };
 
   // =========================
   // SHIFTED TABLE START HERE
@@ -1571,8 +1681,12 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     };
   });
 
-  // K18 cell with "Remark"
-  const k18Cell = summarySheet.getCell("K18");
+  // Remark column header - extend dynamically based on subclients
+  // Minimum K (75), but if subclients > 5, extend to last subclient column
+  const remarkStartCol = 75; // K
+  const remarkEndCol = lastMergedColumn; // Dynamic based on subclients
+  summarySheet.mergeCells(`K${headerRow}:${lastMergedColumnChar}${headerRow}`);
+  const k18Cell = summarySheet.getCell(`K${headerRow}`);
   k18Cell.value = "Remark";
   k18Cell.font = { bold: true, size: 10, name: "Times New Roman" };
   k18Cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
@@ -1586,17 +1700,16 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
   // Outer thin border for header row
   const firstHeaderCol = "A";
-  const lastHeaderCol = "J";
   const leftCell = summarySheet.getCell(`${firstHeaderCol}${headerRow}`);
   leftCell.border = { ...leftCell.border, left: { style: "thin" } };
-  const rightCell = summarySheet.getCell(`${lastHeaderCol}${headerRow}`);
+  const rightCell = summarySheet.getCell(`J${headerRow}`);
   rightCell.border = { ...rightCell.border, right: { style: "thin" } };
   for (let col = 1; col <= 10; col++) {
     const colChar = String.fromCharCode(64 + col);
     const cell = summarySheet.getCell(`${colChar}${headerRow}`);
     cell.border = { ...cell.border, top: { style: "thin" }, bottom: { style: "thin" } };
   }
-  // Add thin top and bottom borders to K18
+  // Add thin top and bottom borders to Remark column (merged K to lastMergedColumn)
   k18Cell.border = { ...k18Cell.border, top: { style: "thin" }, bottom: { style: "thin" } };
 
   // Data rows
@@ -1683,17 +1796,21 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         summarySheet.getCell(`I${currentRowNum}`).value = displayExactValue(netInjection);
         summarySheet.getCell(`J${currentRowNum}`).value = `${Number(weightage).toFixed(2)} %`;
 
-        // K cell (blank) for data rows
-        const kDataCell = summarySheet.getCell(`K${currentRowNum}`);
-        kDataCell.value = "";
-        kDataCell.font = { size: 10, name: "Times New Roman" };
-        kDataCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-        kDataCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+        // Remark column (K to lastMergedColumn) - blank white cells for data rows
+        for (let colCode = remarkStartCol; colCode <= remarkEndCol; colCode++) {
+          const col = String.fromCharCode(colCode);
+          const remarkCell = summarySheet.getCell(`${col}${currentRowNum}`);
+          remarkCell.value = "";
+          remarkCell.font = { size: 10, name: "Times New Roman" };
+          remarkCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+          remarkCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFF" } }; // White background
+          remarkCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+        }
 
-        // Increase border for rows 25-27, columns F-K
+        // Increase border for rows 25-27, columns F to lastMergedColumn
         if (currentRowNum >= 25 && currentRowNum <= 27) {
-          const colsFtoK = ["F", "G", "H", "I", "J", "K"];
-          colsFtoK.forEach((col) => {
+          const colsFtoJ = ["F", "G", "H", "I", "J"];
+          colsFtoJ.forEach((col) => {
             const cell = summarySheet.getCell(`${col}${currentRowNum}`);
             const currentBorder = cell.border || {};
             cell.border = {
@@ -1703,6 +1820,17 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
               right: { style: "thin" },
             };
           });
+          // Also update remark columns
+          for (let colCode = remarkStartCol; colCode <= remarkEndCol; colCode++) {
+            const col = String.fromCharCode(colCode);
+            const cell = summarySheet.getCell(`${col}${currentRowNum}`);
+            cell.border = {
+              top: { style: "thin" },
+              left: { style: "thin" },
+              bottom: { style: "thin" },
+              right: { style: "thin" },
+            };
+          }
         }
       });
     } else {
@@ -1757,17 +1885,21 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       summarySheet.getCell(`I${currentRowNum}`).value = displayExactValue(netInjection);
       summarySheet.getCell(`J${currentRowNum}`).value = `${Number(weightage).toFixed(2)} %`;
 
-      // K cell (blank) for data rows
-      const kDataCell = summarySheet.getCell(`K${currentRowNum}`);
-      kDataCell.value = "";
-      kDataCell.font = { size: 10, name: "Times New Roman" };
-      kDataCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-      kDataCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+      // Remark column (K to lastMergedColumn) - blank white cells for data rows
+      for (let colCode = remarkStartCol; colCode <= remarkEndCol; colCode++) {
+        const col = String.fromCharCode(colCode);
+        const remarkCell = summarySheet.getCell(`${col}${currentRowNum}`);
+        remarkCell.value = "";
+        remarkCell.font = { size: 10, name: "Times New Roman" };
+        remarkCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+        remarkCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFF" } }; // White background
+        remarkCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+      }
 
-      // Increase border for rows 25-27, columns F-K
+      // Increase border for rows 25-27, columns F to lastMergedColumn
       if (currentRowNum >= 25 && currentRowNum <= 27) {
-        const colsFtoK = ["F", "G", "H", "I", "J", "K"];
-        colsFtoK.forEach((col) => {
+        const colsFtoJ = ["F", "G", "H", "I", "J"];
+        colsFtoJ.forEach((col) => {
           const cell = summarySheet.getCell(`${col}${currentRowNum}`);
           const currentBorder = cell.border || {};
           cell.border = {
@@ -1777,6 +1909,17 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
             right: { style: "thin" },
           };
         });
+        // Also update remark columns
+        for (let colCode = remarkStartCol; colCode <= remarkEndCol; colCode++) {
+          const col = String.fromCharCode(colCode);
+          const cell = summarySheet.getCell(`${col}${currentRowNum}`);
+          cell.border = {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" },
+          };
+        }
       }
     }
   });
@@ -1794,16 +1937,17 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       right: { style: col === 6 ? "thin" : "thin" }, // keep F thin border
     };
   }
-  // K cell for blank row
-  if (blankRowNum >= 18 && blankRowNum <= 27) {
-    const kBlankCell = summarySheet.getCell(`K${blankRowNum}`);
-    kBlankCell.value = "";
-    kBlankCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Remark column cells for blank row
+  for (let colCode = remarkStartCol; colCode <= remarkEndCol; colCode++) {
+    const col = String.fromCharCode(colCode);
+    const blankCell = summarySheet.getCell(`${col}${blankRowNum}`);
+    blankCell.value = "";
+    blankCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   }
-  // Increase border for rows 25-27, columns F-K (blank row)
+  // Increase border for rows 25-27, columns F to lastMergedColumn (blank row)
   if (blankRowNum >= 25 && blankRowNum <= 27) {
-    const colsFtoK = ["F", "G", "H", "I", "J", "K"];
-    colsFtoK.forEach((col) => {
+    const colsFtoJ = ["F", "G", "H", "I", "J"];
+    colsFtoJ.forEach((col) => {
       const cell = summarySheet.getCell(`${col}${blankRowNum}`);
       cell.border = {
         top: { style: "thin" },
@@ -1812,6 +1956,17 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         right: { style: "thin" },
       };
     });
+    // Also update remark columns
+    for (let colCode = remarkStartCol; colCode <= remarkEndCol; colCode++) {
+      const col = String.fromCharCode(colCode);
+      const cell = summarySheet.getCell(`${col}${blankRowNum}`);
+      cell.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" },
+      };
+    }
   }
 
   // Totals row (immediately after blank)
@@ -1871,19 +2026,21 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       right: { style: col === 6 ? "thin" : "thin" },
     };
   }
-  // K cell for totals row
-  if (totalRowNum >= 18 && totalRowNum <= 27) {
-    const kTotalCell = summarySheet.getCell(`K${totalRowNum}`);
-    kTotalCell.value = "";
-    kTotalCell.font = { bold: true, size: 12, name: "Times New Roman" };
-    kTotalCell.alignment = { horizontal: "center", vertical: "middle" };
-    kTotalCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-    kTotalCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Remark column cells for totals row - gray background
+  for (let colCode = remarkStartCol; colCode <= remarkEndCol; colCode++) {
+    const col = String.fromCharCode(colCode);
+    const totalCell = summarySheet.getCell(`${col}${totalRowNum}`);
+    totalCell.value = "";
+    totalCell.font = { bold: true, size: 12, name: "Times New Roman" };
+    totalCell.alignment = { horizontal: "center", vertical: "middle" };
+    totalCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } }; // Gray background
+    totalCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   }
-  // Increase border for rows 25-27, columns F-K (totals row)
+
+  // Increase border for rows 25-27, columns F to lastMergedColumn (totals row)
   if (totalRowNum >= 25 && totalRowNum <= 27) {
-    const colsFtoK = ["F", "G", "H", "I", "J", "K"];
-    colsFtoK.forEach((col) => {
+    const colsFtoJ = ["F", "G", "H", "I", "J"];
+    colsFtoJ.forEach((col) => {
       const cell = summarySheet.getCell(`${col}${totalRowNum}`);
       cell.border = {
         top: { style: "thin" },
@@ -1892,10 +2049,26 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         right: { style: "thin" },
       };
     });
+    // Also update remark columns
+    for (let colCode = remarkStartCol; colCode <= remarkEndCol; colCode++) {
+      const col = String.fromCharCode(colCode);
+      const cell = summarySheet.getCell(`${col}${totalRowNum}`);
+      cell.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" },
+      };
+    }
   }
 
-  // Spacer after totals
-  summarySheet.getRow(totalRowNum + 1).height = 15;
+  // Spacer after totals - extend to last column
+  const spacerRowNum = totalRowNum + 1;
+  summarySheet.getRow(spacerRowNum).height = 15;
+  summarySheet.mergeCells(`A${spacerRowNum}:${lastMergedColumnChar}${spacerRowNum}`);
+  const spacerCell = summarySheet.getCell(`A${spacerRowNum}`);
+  spacerCell.value = "";
+  spacerCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFF" } };
 
   // Notes (shifted down automatically)
   const noteRow1 = totalRowNum + 2;
@@ -1903,7 +2076,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
   summarySheet.getCell(`A${noteRow1}`).value = "Note:";
   summarySheet.getCell(`A${noteRow1}`).font = { bold: true, italic: true, size: 10, name: "Times New Roman" };
-  summarySheet.mergeCells(`B${noteRow1}:K${noteRow1}`);
+  summarySheet.mergeCells(`B${noteRow1}:${lastMergedColumnChar}${noteRow1}`);
   const noteCell1 = summarySheet.getCell(`B${noteRow1}`);
   noteCell1.value = {
     richText: [
@@ -1913,7 +2086,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   };
 
   summarySheet.getCell(`A${noteRow2}`).value = "";
-  summarySheet.mergeCells(`B${noteRow2}:K${noteRow2}`);
+  summarySheet.mergeCells(`B${noteRow2}:${lastMergedColumnChar}${noteRow2}`);
   const noteCell2 = summarySheet.getCell(`B${noteRow2}`);
   noteCell2.value = {
     richText: [
