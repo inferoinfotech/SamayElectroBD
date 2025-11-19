@@ -4525,18 +4525,44 @@ const getSLDCData = async (req, res) => {
       year: Number(year)
     })
       .sort({ updatedAt: -1 })   // <-- Add this line to always get the latest!
-      .select('SLDCGROSSINJECTION SLDCGROSSDRAWL');
+      .select('SLDCGROSSINJECTION SLDCGROSSDRAWL DGVCL MGVCL PGVCL UGVCL TAECO TSECO TEL');
 
     if (!sldcData) {
       return res.status(404).json({ message: "No SLDC data found for this client and period." });
     }
 
+    // Build response data - only include DISCOM values if they are not null/undefined and not 0
+    const responseData = {
+      SLDCGROSSINJECTION: sldcData.SLDCGROSSINJECTION,
+      SLDCGROSSDRAWL: sldcData.SLDCGROSSDRAWL
+    };
+
+    // Add DISCOM values only if they exist and are not 0
+    if (sldcData.DGVCL != null && sldcData.DGVCL !== 0) {
+      responseData.DGVCL = sldcData.DGVCL;
+    }
+    if (sldcData.MGVCL != null && sldcData.MGVCL !== 0) {
+      responseData.MGVCL = sldcData.MGVCL;
+    }
+    if (sldcData.PGVCL != null && sldcData.PGVCL !== 0) {
+      responseData.PGVCL = sldcData.PGVCL;
+    }
+    if (sldcData.UGVCL != null && sldcData.UGVCL !== 0) {
+      responseData.UGVCL = sldcData.UGVCL;
+    }
+    if (sldcData.TAECO != null && sldcData.TAECO !== 0) {
+      responseData.TAECO = sldcData.TAECO;
+    }
+    if (sldcData.TSECO != null && sldcData.TSECO !== 0) {
+      responseData.TSECO = sldcData.TSECO;
+    }
+    if (sldcData.TEL != null && sldcData.TEL !== 0) {
+      responseData.TEL = sldcData.TEL;
+    }
+
     res.status(200).json({
       message: "SLDC data fetched successfully.",
-      data: {
-        SLDCGROSSINJECTION: sldcData.SLDCGROSSINJECTION,
-        SLDCGROSSDRAWL: sldcData.SLDCGROSSDRAWL
-      }
+      data: responseData
     });
   } catch (error) {
     logger.error(`Error fetching SLDC data: ${error.message}`);

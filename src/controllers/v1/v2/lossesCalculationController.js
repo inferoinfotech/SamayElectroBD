@@ -31,7 +31,7 @@ const generateLossesCalculation = async (req, res) => {
 
     // SLDC monthly approved (SUMMARY!A8 positive, SUMMARY!K8 negative)
     const SLDC_INJ = req.body.SLDCGROSSINJECTION;  // MAIN ENTRY!B9 equivalent (positive)
-    let   SLDC_DRW = req.body.SLDCGROSSDRAWL;      // MAIN ENTRY!L9 equivalent (negative)
+    let SLDC_DRW = req.body.SLDCGROSSDRAWL;      // MAIN ENTRY!L9 equivalent (negative)
     if (typeof SLDC_DRW === 'number' && SLDC_DRW > 0) SLDC_DRW = -Math.abs(SLDC_DRW);
 
     if (!mainClientId || !month || !year) {
@@ -119,7 +119,7 @@ const generateLossesCalculation = async (req, res) => {
       mainClientId, month, year,
       mainClient: {
         meterNumber: mainClientMeterData[0].meterNumber,
-        meterType:   mainClientMeterData[0].meterType,
+        meterType: mainClientMeterData[0].meterType,
         mainClientDetail: {
           name: mainClientData.name,
           subTitle: mainClientData.subTitle,
@@ -130,16 +130,16 @@ const generateLossesCalculation = async (req, res) => {
           dcCapacityKwp: mainClientData.dcCapacityKwp,
           noOfModules: mainClientData.noOfModules,
           ctptSrNo: mainClientData.ctptSrNo,
-          ctRatio:   mainClientData.ctRatio,
-          ptRatio:   mainClientData.ptRatio,
-          mf:        mainClientData.mf,  // maps to SUMMARY!E12 in your sheet
+          ctRatio: mainClientData.ctRatio,
+          ptRatio: mainClientData.ptRatio,
+          mf: mainClientData.mf,  // maps to SUMMARY!E12 in your sheet
           sharingPercentage: mainClientData.sharingPercentage,
           contactNo: mainClientData.contactNo,
-          email:     mainClientData.email
+          email: mainClientData.email
         },
         grossInjectionMWH: 0,
-        drawlMWH:          0,
-        netInjectionMWH:   0,
+        drawlMWH: 0,
+        netInjectionMWH: 0,
         mainClientMeterDetails: []
       },
       subClient: [],
@@ -183,7 +183,7 @@ const generateLossesCalculation = async (req, res) => {
     for (const row of baseline) {
       const scaled =
         row.s_base > 0 ? row.s_base * fPos :
-        row.s_base < 0 ? row.s_base * fNeg : 0;
+          row.s_base < 0 ? row.s_base * fNeg : 0;
 
       doc.mainClient.mainClientMeterDetails.push({
         date: row.date,
@@ -224,7 +224,7 @@ const generateLossesCalculation = async (req, res) => {
         divisionName: sc.divisionName,
         consumerNo: sc.consumerNo,
         contactNo: sc.contactNo,
-        email:     sc.email,
+        email: sc.email,
         subClientId: sc._id,
         meterNumber, meterType,
         discom: sc.discom,
@@ -265,7 +265,7 @@ const generateLossesCalculation = async (req, res) => {
           });
 
           if (Eraw > 0) scData.subClientsData.grossInjectionMWH += Eraw;
-          else if (Eraw < 0) scData.subClientsData.drawlMWH      += Eraw;
+          else if (Eraw < 0) scData.subClientsData.drawlMWH += Eraw;
         });
       });
 
@@ -300,7 +300,7 @@ const generateLossesCalculation = async (req, res) => {
     }
 
     doc.subClientoverall.overallGrossInjectedUnits = overallPosRaw;
-    doc.subClientoverall.grossDrawlUnits           = overallNegRaw;
+    doc.subClientoverall.grossDrawlUnits = overallNegRaw;
 
     // STEP 7.1: proportional re-distribution to MAIN (HELPER!G → Losses!E)
     const totalSubByKey = new Map();
@@ -313,7 +313,7 @@ const generateLossesCalculation = async (req, res) => {
     for (const sc of doc.subClient) {
       for (const it of sc.subClientsData.subClientMeterData) {
         const key = `${it.date}__${it.time}`;
-        const mainV  = mainByKey.get(key)  ?? 0;
+        const mainV = mainByKey.get(key) ?? 0;
         const subTot = totalSubByKey.get(key) ?? 0;
         it.redistributedToMain = (subTot !== 0) ? (it.grossInjectedUnitsTotal * (mainV / subTot)) : 0;
       }
@@ -321,17 +321,17 @@ const generateLossesCalculation = async (req, res) => {
 
     // STEP 8: legacy differences (reporting vs main)
     doc.difference.diffInjectedUnits = doc.subClientoverall.overallGrossInjectedUnits - doc.mainClient.grossInjectionMWH;
-    doc.difference.diffDrawlUnits    = doc.subClientoverall.grossDrawlUnits          - doc.mainClient.drawlMWH;
+    doc.difference.diffDrawlUnits = doc.subClientoverall.grossDrawlUnits - doc.mainClient.drawlMWH;
 
     // STEP 9: legacy weightages
     for (const sc of doc.subClient) {
       const sd = sc.subClientsData;
       sd.weightageGrossInjecting = overallPosRaw !== 0 ? (sd.grossInjectionMWH / overallPosRaw) * 100 : 0;
-      sd.weightageGrossDrawl     = overallNegRaw !== 0 ? (sd.drawlMWH / overallNegRaw) * 100 : 0;
-      sd.lossesInjectedUnits     = (doc.difference.diffInjectedUnits * sd.weightageGrossInjecting) / 100;
+      sd.weightageGrossDrawl = overallNegRaw !== 0 ? (sd.drawlMWH / overallNegRaw) * 100 : 0;
+      sd.lossesInjectedUnits = (doc.difference.diffInjectedUnits * sd.weightageGrossInjecting) / 100;
       sd.inPercentageOfLossesInjectedUnits = sd.grossInjectionMWH !== 0 ? (sd.lossesInjectedUnits / sd.grossInjectionMWH) * 100 : 0;
-      sd.lossesDrawlUnits        = (doc.difference.diffDrawlUnits * sd.weightageGrossDrawl) / 100;
-      sd.inPercentageOfLossesDrawlUnits    = sd.drawlMWH !== 0 ? (sd.lossesDrawlUnits / sd.drawlMWH) * 100 : 0;
+      sd.lossesDrawlUnits = (doc.difference.diffDrawlUnits * sd.weightageGrossDrawl) / 100;
+      sd.inPercentageOfLossesDrawlUnits = sd.drawlMWH !== 0 ? (sd.lossesDrawlUnits / sd.drawlMWH) * 100 : 0;
     }
 
     // STEP 10: N6/P6 on redistributed E with residual snap
@@ -339,7 +339,7 @@ const generateLossesCalculation = async (req, res) => {
     for (const sc of doc.subClient) {
       for (const it of sc.subClientsData.subClientMeterData) {
         const E = Number(it.redistributedToMain) || 0;
-        if      (E > 0) sumPosE += E;
+        if (E > 0) sumPosE += E;
         else if (E < 0) sumNegE += E;
       }
     }
@@ -367,7 +367,7 @@ const generateLossesCalculation = async (req, res) => {
 
         it.netTotalAfterLosses = net;
         if (net > 0) sc.subClientsData.grossInjectionMWHAfterLosses += net;
-        else         sc.subClientsData.drawlMWHAfterLosses          += net;
+        else sc.subClientsData.drawlMWHAfterLosses += net;
       }
 
       sc.subClientsData.netInjectionMWHAfterLosses =
@@ -433,10 +433,10 @@ const generateLossesCalculation = async (req, res) => {
 
     // STEP 12: record SLDC deltas vs MAIN baseline (intervals already correct)
     if (typeof SLDC_INJ === 'number') doc.SLDCGROSSINJECTION = SLDC_INJ;
-    if (typeof SLDC_DRW === 'number') doc.SLDCGROSSDRAWL     = SLDC_DRW;
+    if (typeof SLDC_DRW === 'number') doc.SLDCGROSSDRAWL = SLDC_DRW;
     if (typeof SLDC_INJ === 'number' || typeof SLDC_DRW === 'number') {
       doc.mainClient.asperApprovedbySLDCGROSSINJECTION = (typeof SLDC_INJ === 'number') ? (SLDC_INJ - doc.mainClient.grossInjectionMWH) : 0;
-      doc.mainClient.asperApprovedbySLDCGROSSDRAWL     = (typeof SLDC_DRW === 'number') ? (SLDC_DRW - doc.mainClient.drawlMWH) : 0;
+      doc.mainClient.asperApprovedbySLDCGROSSDRAWL = (typeof SLDC_DRW === 'number') ? (SLDC_DRW - doc.mainClient.drawlMWH) : 0;
     }
 
     // STEP 13: save + respond
@@ -4210,18 +4210,44 @@ const getSLDCData = async (req, res) => {
       year: Number(year)
     })
       .sort({ updatedAt: -1 })   // <-- Add this line to always get the latest!
-      .select('SLDCGROSSINJECTION SLDCGROSSDRAWL');
+      .select('SLDCGROSSINJECTION SLDCGROSSDRAWL DGVCL MGVCL PGVCL UGVCL TAECO TSECO TEL');
 
     if (!sldcData) {
       return res.status(404).json({ message: "No SLDC data found for this client and period." });
     }
 
+    // Build response data - only include DISCOM values if they are not null/undefined and not 0
+    const responseData = {
+      SLDCGROSSINJECTION: sldcData.SLDCGROSSINJECTION,
+      SLDCGROSSDRAWL: sldcData.SLDCGROSSDRAWL
+    };
+
+    // Add DISCOM values only if they exist and are not 0
+    if (sldcData.DGVCL != null && sldcData.DGVCL !== 0) {
+      responseData.DGVCL = sldcData.DGVCL;
+    }
+    if (sldcData.MGVCL != null && sldcData.MGVCL !== 0) {
+      responseData.MGVCL = sldcData.MGVCL;
+    }
+    if (sldcData.PGVCL != null && sldcData.PGVCL !== 0) {
+      responseData.PGVCL = sldcData.PGVCL;
+    }
+    if (sldcData.UGVCL != null && sldcData.UGVCL !== 0) {
+      responseData.UGVCL = sldcData.UGVCL;
+    }
+    if (sldcData.TAECO != null && sldcData.TAECO !== 0) {
+      responseData.TAECO = sldcData.TAECO;
+    }
+    if (sldcData.TSECO != null && sldcData.TSECO !== 0) {
+      responseData.TSECO = sldcData.TSECO;
+    }
+    if (sldcData.TEL != null && sldcData.TEL !== 0) {
+      responseData.TEL = sldcData.TEL;
+    }
+
     res.status(200).json({
       message: "SLDC data fetched successfully.",
-      data: {
-        SLDCGROSSINJECTION: sldcData.SLDCGROSSINJECTION,
-        SLDCGROSSDRAWL: sldcData.SLDCGROSSDRAWL
-      }
+      data: responseData
     });
   } catch (error) {
     logger.error(`Error fetching SLDC data: ${error.message}`);
