@@ -959,20 +959,20 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     0
   ).getDate();
 
-  // Column widths
-  summarySheet.columns = [
+  // Column widths - dynamic based on number of subclients
+  const numSubClientsForCols = lossesCalculationData.subClient.length;
+  const baseColumns = [
     { width: 7 },   // A - Sr. No.
     { width: 30 },  // B - HT Consumer Name
     { width: 13 },  // C - HT Consumer No.
     { width: 22 },  // D - Wheeling Division Office/Location
-    { width: 22 },  // E - Wheeling Discom
-    { width: 22 },  // F - Project Capacity (kW) (AC)
-    { width: 22 },  // G - Share in Gross Injected Units to S/S (MWh)
-    { width: 22 },  // H - Share in Gross Drawl Units from S/S (MWh)
-    { width: 22 },  // I - Net Injected Units to S/S (MWh)
-    { width: 22 },  // J - % Weightage According to Gross Injecting
-    { width: 22 },  // K - Additional column
+    { width: 22 },  // E - Wheeling Discom (Main Client)
   ];
+  // Add columns for each subclient (F onwards)
+  const summarySubClientColumns = Array.from({ length: numSubClientsForCols }, () => ({ width: 22 }));
+  // Add one additional blank column after subclients
+  const additionalColumn = [{ width: 22 }];
+  summarySheet.columns = [...baseColumns, ...summarySubClientColumns, ...additionalColumn];
 
   // Helper for fixed 3-decimal text
   const displayExactValue = (value) => {
@@ -1102,8 +1102,9 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   mainClientCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
   mainClientCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
-  for (let i = 0; i < 5; i++) {
-    const col = String.fromCharCode(70 + i); // F..J
+  const numSubClients = lossesCalculationData.subClient.length;
+  for (let i = 0; i < numSubClients; i++) {
+    const col = String.fromCharCode(70 + i); // F onwards
     const cellRef = summarySheet.getCell(`${col}6`);
     cellRef.value = lossesCalculationData.subClient[i]
       ? lossesCalculationData.subClient[i].name.toUpperCase()
@@ -1114,13 +1115,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cellRef.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   }
 
-  // K6 blank cell
-  const k6Cell = summarySheet.getCell("K6");
-  k6Cell.value = "";
-  k6Cell.font = { bold: true, size: 10, name: "Times New Roman" };
-  k6Cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-  k6Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k6Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Last column blank cell (after all subclients)
+  const lastCol = String.fromCharCode(70 + numSubClients); // Column after last subclient
+  const lastColCell = summarySheet.getCell(`${lastCol}6`);
+  lastColCell.value = "";
+  lastColCell.font = { bold: true, size: 10, name: "Times New Roman" };
+  lastColCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+  lastColCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
+  lastColCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   // Totals (exact values)
   const mainClientGrossInjection = lossesCalculationData.mainClient.grossInjectionMWH || 0;
@@ -1215,7 +1217,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
   abtMeterLabelCell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const meterCells = [{ col: "E7", value: lossesCalculationData.mainClient.meterNumber || "", bgColor: "D9D9D9" }];
-  const maxSubClients = 5;
+  const maxSubClients = lossesCalculationData.subClient.length;
   for (let i = 0; i < maxSubClients; i++) {
     const colChar = String.fromCharCode(69 + i + 1); // F..J
     meterCells.push({
@@ -1233,13 +1235,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
 
-  // K7 blank cell
-  const k7Cell = summarySheet.getCell("K7");
-  k7Cell.value = "";
-  k7Cell.font = { bold: true, size: 10, name: "Times New Roman" };
-  k7Cell.alignment = { horizontal: "center", vertical: "middle" };
-  k7Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k7Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Blank cell after subclients (row 7)
+  const lastColRow7 = String.fromCharCode(70 + maxSubClients); // Column after last subclient
+  const lastColCellRow7 = summarySheet.getCell(`${lastColRow7}7`);
+  lastColCellRow7.value = "";
+  lastColCellRow7.font = { bold: true, size: 10, name: "Times New Roman" };
+  lastColCellRow7.alignment = { horizontal: "center", vertical: "middle" };
+  lastColCellRow7.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
+  lastColCellRow7.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const voltageLabelCell = summarySheet.getCell("D8");
   voltageLabelCell.value = "Voltage Level";
@@ -1266,13 +1269,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
 
-  // K8 blank cell
-  const k8Cell = summarySheet.getCell("K8");
-  k8Cell.value = "";
-  k8Cell.font = { size: 10, name: "Times New Roman" };
-  k8Cell.alignment = { horizontal: "center", vertical: "middle" };
-  k8Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k8Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Blank cell after subclients (row 8)
+  const lastColRow8 = String.fromCharCode(70 + maxSubClients);
+  const lastColCellRow8 = summarySheet.getCell(`${lastColRow8}8`);
+  lastColCellRow8.value = "";
+  lastColCellRow8.font = { size: 10, name: "Times New Roman" };
+  lastColCellRow8.alignment = { horizontal: "center", vertical: "middle" };
+  lastColCellRow8.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
+  lastColCellRow8.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const ctptLabelCell = summarySheet.getCell("D9");
   ctptLabelCell.value = "CTPT Sr.No.";
@@ -1299,13 +1303,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
 
-  // K9 blank cell
-  const k9Cell = summarySheet.getCell("K9");
-  k9Cell.value = "";
-  k9Cell.font = { size: 10, name: "Times New Roman" };
-  k9Cell.alignment = { horizontal: "center", vertical: "middle" };
-  k9Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k9Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Blank cell after subclients (row 9)
+  const lastColRow9 = String.fromCharCode(70 + maxSubClients);
+  const lastColCellRow9 = summarySheet.getCell(`${lastColRow9}9`);
+  lastColCellRow9.value = "";
+  lastColCellRow9.font = { size: 10, name: "Times New Roman" };
+  lastColCellRow9.alignment = { horizontal: "center", vertical: "middle" };
+  lastColCellRow9.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
+  lastColCellRow9.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const ctRatioLabelCell = summarySheet.getCell("D10");
   ctRatioLabelCell.value = "CT Ratio (A/A)";
@@ -1332,13 +1337,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
 
-  // K10 blank cell
-  const k10Cell = summarySheet.getCell("K10");
-  k10Cell.value = "";
-  k10Cell.font = { size: 10, name: "Times New Roman" };
-  k10Cell.alignment = { horizontal: "center", vertical: "middle" };
-  k10Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k10Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Blank cell after subclients (row 10)
+  const lastColRow10 = String.fromCharCode(70 + maxSubClients);
+  const lastColCellRow10 = summarySheet.getCell(`${lastColRow10}10`);
+  lastColCellRow10.value = "";
+  lastColCellRow10.font = { size: 10, name: "Times New Roman" };
+  lastColCellRow10.alignment = { horizontal: "center", vertical: "middle" };
+  lastColCellRow10.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
+  lastColCellRow10.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const ptRatioLabelCell = summarySheet.getCell("D11");
   ptRatioLabelCell.value = "PT Ratio (V/V)";
@@ -1365,13 +1371,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
 
-  // K11 blank cell
-  const k11Cell = summarySheet.getCell("K11");
-  k11Cell.value = "";
-  k11Cell.font = { size: 10, name: "Times New Roman" };
-  k11Cell.alignment = { horizontal: "center", vertical: "middle" };
-  k11Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k11Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Blank cell after subclients (row 11)
+  const lastColRow11 = String.fromCharCode(70 + maxSubClients);
+  const lastColCellRow11 = summarySheet.getCell(`${lastColRow11}11`);
+  lastColCellRow11.value = "";
+  lastColCellRow11.font = { size: 10, name: "Times New Roman" };
+  lastColCellRow11.alignment = { horizontal: "center", vertical: "middle" };
+  lastColCellRow11.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
+  lastColCellRow11.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   const mfLabelCell = summarySheet.getCell("D12");
   mfLabelCell.value = "MF";
@@ -1402,13 +1409,14 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
     cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
   });
 
-  // K12 blank cell
-  const k12Cell = summarySheet.getCell("K12");
-  k12Cell.value = "";
-  k12Cell.font = { size: 10, name: "Times New Roman" };
-  k12Cell.alignment = { horizontal: "center", vertical: "middle" };
-  k12Cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
-  k12Cell.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
+  // Blank cell after subclients (row 12)
+  const lastColRow12 = String.fromCharCode(70 + maxSubClients);
+  const lastColCellRow12 = summarySheet.getCell(`${lastColRow12}12`);
+  lastColCellRow12.value = "";
+  lastColCellRow12.font = { size: 10, name: "Times New Roman" };
+  lastColCellRow12.alignment = { horizontal: "center", vertical: "middle" };
+  lastColCellRow12.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9D9D9" } };
+  lastColCellRow12.border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
   // Row 13 spacer before table
   summarySheet.getRow(13).height = 15;
