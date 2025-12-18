@@ -5,6 +5,8 @@ const DailyreportSchema = new mongoose.Schema({
     mainClientId: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'MainClient' }, // Reference to Main Client
     month: { type: Number, required: true },
     year: { type: Number, required: true },
+    showLoggerColumns: { type: Boolean, default: false }, // Whether to show logger columns in reports
+    showAvgColumn: { type: Boolean, default: true }, // Whether to show avg generation column in reports
 
     mainClient: {
         meterNumber: { type: String, required: true },
@@ -25,11 +27,13 @@ const DailyreportSchema = new mongoose.Schema({
         },
         totalexport: { type: Number, required: true },
         totalimport: { type: Number, required: true },
+        totalAvgGeneration: { type: Number }, // Total avg generation (sum of all daily avg generations)
         loggerdatas: [
             {
                 date: { type: String, required: true },
                 export: { type: Number, required: true },
-                import: { type: Number, required: true }
+                import: { type: Number, required: true },
+                avgGeneration: { type: Number } // Export / DC Capacity
             }],
     },
 
@@ -48,7 +52,8 @@ const DailyreportSchema = new mongoose.Schema({
         totalloggerdata: { type: Number, required: true },
         totalinternallosse: { type: Number, required: true },
         totallossinparsantege: { type: Number, required: true },
-        loggerdatas: [
+        totalAvgGeneration: { type: Number }, // Total avg generation (sum of all daily avg generations)
+                loggerdatas: [
             {
                 date: { type: String, required: true },
                 export: { type: Number, required: true },
@@ -56,6 +61,7 @@ const DailyreportSchema = new mongoose.Schema({
                 loggerdata: { type: Number, required: true },
                 internallosse: { type: Number, required: true },
                 lossinparsantege: { type: Number, required: true },
+                avgGeneration: { type: Number }, // Export / DC Capacity
             }],
     }],
 

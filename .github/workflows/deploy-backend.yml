@@ -1,0 +1,58 @@
+name: Deploy Backend to Digital Ocean
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy to Digital Ocean
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DIGITALOCEAN_SSH_KEY }}
+
+      - name: Add server to known hosts
+        run: |
+          ssh-keyscan -H 139.59.8.81 >> ~/.ssh/known_hosts
+
+      - name: Deploy to Digital Ocean
+        run: |
+          ssh -o StrictHostKeyChecking=no root@139.59.8.81 << 'EOF'
+            set -e
+            echo "🚀 Starting deployment..."
+            
+            cd /root/SamayElectroBD
+            
+            echo "📥 Pulling latest changes from main branch..."
+            git pull origin main
+            
+            echo "📦 Installing dependencies..."
+            npm install
+            
+            echo "🔄 Restarting PM2 application..."
+            pm2 restart samay-api
+            
+            echo "✅ Deployment completed successfully!"
+            
+            # Show PM2 status
+            pm2 status samay-api
+          EOF
+
+      - name: Deployment Status
+        if: success()
+        run: |
+          echo "✅ Backend deployed successfully to Digital Ocean!"
+
+      - name: Deployment Failed
+        if: failure()
+        run: |
+          echo "❌ Deployment failed. Please check the logs above."
+
