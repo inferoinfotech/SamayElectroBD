@@ -653,6 +653,15 @@ const generateLossesCalculation = async (req, res) => {
       });
     });
 
+    // Update grossInjectedUnitsTotal to use discomScaled for sub clients
+    doc.subClient.forEach((sc) => {
+      sc.subClientsData.subClientMeterData.forEach((row) => {
+        if (row.helper && row.helper.discomScaled !== undefined) {
+          row.grossInjectedUnitsTotal = row.helper.discomScaled;
+        }
+      });
+    });
+
     // ----- Loss percentages & first pass after-losses -----
     doc.subClient.forEach((sc) => {
       const d = sc.subClientsData;
