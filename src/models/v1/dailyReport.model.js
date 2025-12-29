@@ -6,7 +6,8 @@ const DailyreportSchema = new mongoose.Schema({
     month: { type: Number, required: true },
     year: { type: Number, required: true },
     showLoggerColumns: { type: Boolean, default: false }, // Whether to show logger columns in reports
-    showAvgColumn: { type: Boolean, default: true }, // Whether to show avg generation column in reports
+    showAvgColumn: { type: Boolean, default: false }, // Whether to show avg generation (DC) column in reports
+    showAvgAcColumn: { type: Boolean, default: false }, // Whether to show avg generation (AC) column in reports
 
     mainClient: {
         meterNumber: { type: String, required: true },
@@ -27,13 +28,15 @@ const DailyreportSchema = new mongoose.Schema({
         },
         totalexport: { type: Number, required: true },
         totalimport: { type: Number, required: true },
-        totalAvgGeneration: { type: Number }, // Total avg generation (sum of all daily avg generations)
+        totalAvgGeneration: { type: Number }, // Total avg generation DC (sum of all daily avg generations)
+        totalAvgGenerationAc: { type: Number }, // Total avg generation AC (sum of all daily avg generations)
         loggerdatas: [
             {
                 date: { type: String, required: true },
                 export: { type: Number, required: true },
                 import: { type: Number, required: true },
-                avgGeneration: { type: Number } // Export / DC Capacity
+                avgGeneration: { type: Number }, // Export / DC Capacity
+                avgGenerationAc: { type: Number } // Export / AC Capacity
             }],
     },
 
@@ -52,7 +55,8 @@ const DailyreportSchema = new mongoose.Schema({
         totalloggerdata: { type: Number, required: true },
         totalinternallosse: { type: Number, required: true },
         totallossinparsantege: { type: Number, required: true },
-        totalAvgGeneration: { type: Number }, // Total avg generation (sum of all daily avg generations)
+        totalAvgGeneration: { type: Number }, // Total avg generation DC (sum of all daily avg generations)
+        totalAvgGenerationAc: { type: Number }, // Total avg generation AC (sum of all daily avg generations)
                 loggerdatas: [
             {
                 date: { type: String, required: true },
@@ -62,6 +66,7 @@ const DailyreportSchema = new mongoose.Schema({
                 internallosse: { type: Number, required: true },
                 lossinparsantege: { type: Number, required: true },
                 avgGeneration: { type: Number }, // Export / DC Capacity
+                avgGenerationAc: { type: Number } // Export / AC Capacity
             }],
     }],
 
