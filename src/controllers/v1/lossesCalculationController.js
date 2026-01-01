@@ -1741,6 +1741,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
         // A: Sr No
         summarySheet.getCell(`A${currentRowNum}`).value = globalIndex++;
+        summarySheet.getCell(`A${currentRowNum}`).font = { size: 10, name: "Times New Roman" };
         summarySheet.getCell(`A${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle", wrapText: true };
         summarySheet.getCell(`A${currentRowNum}`).border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
@@ -1768,6 +1769,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         // F: Capacity (merge for partclients)
         if (partIndex === 0) {
           summarySheet.getCell(`F${currentRowNum}`).value = subClient.acCapacityKw || "";
+          summarySheet.getCell(`F${currentRowNum}`).font = { size: 10, name: "Times New Roman" };
           summarySheet.getCell(`F${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle" };
           summarySheet.getCell(`F${currentRowNum}`).border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
@@ -1854,6 +1856,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       const weightage = totalGrossInjectedForGreenBox > 0 ? (grossInjection / totalGrossInjectedForGreenBox) * 100 : 0;
 
       summarySheet.getCell(`A${currentRowNum}`).value = globalIndex++;
+      summarySheet.getCell(`A${currentRowNum}`).font = { size: 10, name: "Times New Roman" };
       summarySheet.getCell(`A${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle", wrapText: true };
       summarySheet.getCell(`A${currentRowNum}`).border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
@@ -1872,6 +1875,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       summarySheet.getCell(`E${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle" };
 
       summarySheet.getCell(`F${currentRowNum}`).value = subClient.acCapacityKw || "";
+      summarySheet.getCell(`F${currentRowNum}`).font = { size: 10, name: "Times New Roman" };
       summarySheet.getCell(`F${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle" };
       summarySheet.getCell(`F${currentRowNum}`).border = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "thin" }, right: { style: "thin" } };
 
@@ -2093,6 +2097,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       { text: "MWH", font: { bold: true, italic: true, size: 10, name: "Times New Roman", color: { argb: "FF0000" } } },
     ],
   };
+  noteCell1.font = { name: 'Times New Roman', size: 10 };
 
   summarySheet.getCell(`A${noteRow2}`).value = "";
   summarySheet.mergeCells(`B${noteRow2}:${lastMergedColumnChar}${noteRow2}`);
@@ -2104,6 +2109,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       { text: ` is the Grossing Meter at ${lossesCalculationData.mainClient.mainClientDetail.subTitle} S/S End`, font: { bold: true, italic: true, size: 10, name: "Times New Roman" } },
     ],
   };
+  noteCell2.font = { name: 'Times New Roman', size: 10 };
 
   // Apply common formatting to both rows
   [noteRow1, noteRow2].forEach(row => {
@@ -2273,6 +2279,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
       { text: 'MWH', font: { italic: true, bold: true, size: 12, name: 'Times New Roman', color: { argb: 'FFFF0000' } } } // Red color
     ]
   };
+  noteCell.font = { name: 'Times New Roman', size: 12 };
 
   noteCell.alignment = { horizontal: 'left', vertical: 'middle' };
 
@@ -3155,7 +3162,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         const mainCell = masterdataSheet.getCell(`D${rowIndex}`);
         const mainValue = mainEntry.grossInjectedUnitsTotal;
         mainCell.value = mainValue;
-        mainCell.numFmt = '0.00000';
+        mainCell.numFmt = '0.0000';
         mainCell.font = { size: 10, name: 'Times New Roman' };
 
         // Highlight negative or zero values (original styling)
@@ -3184,7 +3191,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
               const partValue = subEntry.netTotalAfterLosses * sharingPct;
               cell.value = partValue;
-              cell.numFmt = '0.00000';
+              cell.numFmt = '0.0000';
               cell.font = { size: 10, name: 'Times New Roman' };
               subClientsSum += partValue;
 
@@ -3202,7 +3209,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
             const value = subEntry.netTotalAfterLosses;
             cell.value = value;
-            cell.numFmt = '0.00000';
+            cell.numFmt = '0.0000';
             cell.font = { size: 10, name: 'Times New Roman' };
             subClientsSum += value;
 
@@ -4438,8 +4445,16 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
           // Set date, time and block number
           worksheet.getCell(`A${rowIndex}`).value = date;
+          worksheet.getCell(`A${rowIndex}`).font = { size: 10, name: 'Times New Roman' };
+          worksheet.getCell(`A${rowIndex}`).alignment = { horizontal: "center", vertical: "middle" };
+
           worksheet.getCell(`B${rowIndex}`).value = time;
+          worksheet.getCell(`B${rowIndex}`).font = { size: 10, name: 'Times New Roman' };
+          worksheet.getCell(`B${rowIndex}`).alignment = { horizontal: "center", vertical: "middle" };
+
           worksheet.getCell(`C${rowIndex}`).value = blockNumber;
+          worksheet.getCell(`C${rowIndex}`).font = { size: 10, name: 'Times New Roman' };
+          worksheet.getCell(`C${rowIndex}`).alignment = { horizontal: "center", vertical: "middle" };
 
           // Find main client entry for this date/time - use 0 if not found
           const mainEntry = lossesCalculationData.mainClient.mainClientMeterDetails?.find(
@@ -4450,11 +4465,13 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
           const mainGrossCell = worksheet.getCell(`D${rowIndex}`);
           const mainGrossValue = mainEntry.grossInjectedUnitsTotal;
           mainGrossCell.value = mainGrossValue;
-          mainGrossCell.numFmt = '0.000';
+          mainGrossCell.numFmt = '0.0000';
 
           if (mainGrossValue <= 0) {
             mainGrossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
-            mainGrossCell.font = { color: { argb: "9C0006" } };
+            mainGrossCell.font = { color: { argb: "9C0006" }, size: 10, name: 'Times New Roman' };
+          } else {
+            mainGrossCell.font = { size: 10, name: 'Times New Roman' };
           }
 
           // Add sub client data
@@ -4473,11 +4490,13 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
               const grossCell = worksheet.getCell(`${String.fromCharCode(64 + currentCol)}${rowIndex}`);
               const grossValue = subEntry.grossInjectedUnitsTotal;
               grossCell.value = grossValue;
-              grossCell.numFmt = '0.000';
+              grossCell.numFmt = '0.0000';
 
               if (grossValue <= 0) {
                 grossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
-                grossCell.font = { color: { argb: "9C0006" } };
+                grossCell.font = { color: { argb: "9C0006" }, size: 10, name: 'Times New Roman' };
+              } else {
+                grossCell.font = { size: 10, name: 'Times New Roman' };
               }
 
               // Partclient columns
@@ -4490,11 +4509,13 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
                 const netValue = (subEntry.netTotalAfterLosses * sharingPercentage) / 100;
 
                 netLossCell.value = netValue;
-                netLossCell.numFmt = '0.000';
+                netLossCell.numFmt = '0.0000';
 
                 if (netValue <= 0) {
                   netLossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
-                  netLossCell.font = { color: { argb: "9C0006" } };
+                  netLossCell.font = { color: { argb: "9C0006" }, size: 10, name: 'Times New Roman' };
+                } else {
+                  netLossCell.font = { size: 10, name: 'Times New Roman' };
                 }
               });
 
@@ -4505,22 +4526,26 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
               const grossCell = worksheet.getCell(`${String.fromCharCode(64 + currentCol)}${rowIndex}`);
               const grossValue = subEntry.grossInjectedUnitsTotal;
               grossCell.value = grossValue;
-              grossCell.numFmt = '0.000';
+              grossCell.numFmt = '0.0000';
 
               if (grossValue <= 0) {
                 grossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
-                grossCell.font = { color: { argb: "9C0006" } };
+                grossCell.font = { color: { argb: "9C0006" }, size: 10, name: 'Times New Roman' };
+              } else {
+                grossCell.font = { size: 10, name: 'Times New Roman' };
               }
 
               // NET column
               const netLossCell = worksheet.getCell(`${String.fromCharCode(64 + currentCol + 1)}${rowIndex}`);
               const netValue = subEntry.netTotalAfterLosses;
               netLossCell.value = netValue;
-              netLossCell.numFmt = '0.000';
+              netLossCell.numFmt = '0.0000';
 
               if (netValue <= 0) {
                 netLossCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC7CE" } };
-                netLossCell.font = { color: { argb: "9C0006" } };
+                netLossCell.font = { color: { argb: "9C0006" }, size: 10, name: 'Times New Roman' };
+              } else {
+                netLossCell.font = { size: 10, name: 'Times New Roman' };
               }
 
               currentCol += 2;
