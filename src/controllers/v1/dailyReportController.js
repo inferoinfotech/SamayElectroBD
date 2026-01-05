@@ -2286,7 +2286,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
                 doc.font(dataFont)
                     .fontSize(dataFontSize)
                     .fillColor(colors.blackText)
-                    .text(typeof dayData.avgGeneration === 'number' ? dayData.avgGeneration.toFixed(2) : (dayData.avgGeneration || '0.0'),
+                    .text(typeof dayData.avgGeneration === 'number' ? dayData.avgGeneration.toFixed(1) : (dayData.avgGeneration || '0.0'),
                         15 + colWidths.date + (mainDataOffset * colWidths.mainExport), yCentered, {
                         width: colWidths.mainExport,
                         align: 'center'
@@ -2302,7 +2302,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
                 doc.font(dataFont)
                     .fontSize(dataFontSize)
                     .fillColor(colors.blackText)
-                    .text(typeof dayData.avgGenerationAc === 'number' ? dayData.avgGenerationAc.toFixed(2) : (dayData.avgGenerationAc || '0.0'),
+                    .text(typeof dayData.avgGenerationAc === 'number' ? dayData.avgGenerationAc.toFixed(1) : (dayData.avgGenerationAc || '0.0'),
                         15 + colWidths.date + (mainDataOffset * colWidths.mainExport), yCentered, {
                         width: colWidths.mainExport,
                         align: 'center'
@@ -2356,7 +2356,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
                         doc.font(dataFont)
                             .fontSize(dataFontSize)
                             .fillColor(colors.blackText)
-                            .text(typeof subDayData.avgGeneration === 'number' ? subDayData.avgGeneration.toFixed(2) : (subDayData.avgGeneration || 0),
+                            .text(typeof subDayData.avgGeneration === 'number' ? subDayData.avgGeneration.toFixed(1) : (subDayData.avgGeneration || 0),
                                 startX + (colOffset * colWidths.subExport), yCentered, {
                                 width: colWidths.subExport,
                                 align: 'center'
@@ -2373,7 +2373,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
                         doc.font(dataFont)
                             .fontSize(dataFontSize)
                             .fillColor(colors.blackText)
-                            .text(typeof subDayData.avgGenerationAc === 'number' ? subDayData.avgGenerationAc.toFixed(2) : (subDayData.avgGenerationAc || 0),
+                            .text(typeof subDayData.avgGenerationAc === 'number' ? subDayData.avgGenerationAc.toFixed(1) : (subDayData.avgGenerationAc || 0),
                                 startX + (colOffset * colWidths.subExport), yCentered, {
                                 width: colWidths.subExport,
                                 align: 'center'
@@ -2533,7 +2533,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
             doc.font(headerFont)
                 .fontSize(totalFontSize)
                 .fillColor(colors.blackText)
-                .text(typeof dailyReport.mainClient.totalAvgGeneration === 'number' ? dailyReport.mainClient.totalAvgGeneration.toFixed(2) : (dailyReport.mainClient.totalAvgGeneration || '0.0'),
+                .text(typeof dailyReport.mainClient.totalAvgGeneration === 'number' ? dailyReport.mainClient.totalAvgGeneration.toFixed(1) : (dailyReport.mainClient.totalAvgGeneration || '0.0'),
                     15 + colWidths.date + (mainTotalsOffset * colWidths.mainExport), yCentered, {
                     width: colWidths.mainExport,
                     align: 'center'
@@ -2549,7 +2549,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
             doc.font(headerFont)
                 .fontSize(totalFontSize)
                 .fillColor(colors.blackText)
-                .text(typeof dailyReport.mainClient.totalAvgGenerationAc === 'number' ? dailyReport.mainClient.totalAvgGenerationAc.toFixed(2) : (dailyReport.mainClient.totalAvgGenerationAc || '0.0'),
+                .text(typeof dailyReport.mainClient.totalAvgGenerationAc === 'number' ? dailyReport.mainClient.totalAvgGenerationAc.toFixed(1) : (dailyReport.mainClient.totalAvgGenerationAc || '0.0'),
                     15 + colWidths.date + (mainTotalsOffset * colWidths.mainExport), yCentered, {
                     width: colWidths.mainExport,
                     align: 'center'
@@ -2600,7 +2600,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
                 doc.font(headerFont)
                     .fontSize(totalFontSize)
                     .fillColor(colors.blackText)
-                    .text(typeof subClient.totalAvgGeneration === 'number' ? subClient.totalAvgGeneration.toFixed(2) : (subClient.totalAvgGeneration || 0),
+                    .text(typeof subClient.totalAvgGeneration === 'number' ? subClient.totalAvgGeneration.toFixed(1) : (subClient.totalAvgGeneration || 0),
                         startX + (colOffset * colWidths.subExport), yCentered, {
                         width: colWidths.subExport,
                         align: 'center'
@@ -2617,7 +2617,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
                 doc.font(headerFont)
                     .fontSize(totalFontSize)
                     .fillColor(colors.blackText)
-                    .text(typeof subClient.totalAvgGenerationAc === 'number' ? subClient.totalAvgGenerationAc.toFixed(2) : (subClient.totalAvgGenerationAc || 0),
+                    .text(typeof subClient.totalAvgGenerationAc === 'number' ? subClient.totalAvgGenerationAc.toFixed(1) : (subClient.totalAvgGenerationAc || 0),
                         startX + (colOffset * colWidths.subExport), yCentered, {
                         width: colWidths.subExport,
                         align: 'center'
