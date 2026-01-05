@@ -190,6 +190,11 @@ exports.generateDailyReport = async (req, res) => {
             mainClientTotalAvgGenerationAc += avgGenerationAc;
         }
 
+        // Calculate average of daily avg generation values (matching Excel =AVERAGE formula)
+        const numberOfDays = loggerData.length;
+        const avgOfAvgGeneration = numberOfDays > 0 ? (mainClientTotalAvgGeneration / numberOfDays) : 0;
+        const avgOfAvgGenerationAc = numberOfDays > 0 ? (mainClientTotalAvgGenerationAc / numberOfDays) : 0;
+
         // Initialize daily report
         const dailyReport = new DailyReport({
             mainClientId,
@@ -204,8 +209,8 @@ exports.generateDailyReport = async (req, res) => {
                 mainClientDetail: mainClientData.toObject(),
                 totalexport: mainClientTotalExport,
                 totalimport: mainClientTotalImport,
-                totalAvgGeneration: parseFloat(mainClientTotalAvgGeneration.toFixed(2)),
-                totalAvgGenerationAc: parseFloat(mainClientTotalAvgGenerationAc.toFixed(2)),
+                totalAvgGeneration: parseFloat(avgOfAvgGeneration.toFixed(2)),
+                totalAvgGenerationAc: parseFloat(avgOfAvgGenerationAc.toFixed(2)),
                 loggerdatas: loggerData
             },
             subClient: [],
@@ -470,9 +475,10 @@ exports.generateDailyReport = async (req, res) => {
                 subClientTotalAvgGenerationAc += avgGenerationAc;
             }
 
-            // Calculate total avg generation (sum of all daily avg generations)
-            const totalAvgGeneration = parseFloat(subClientTotalAvgGeneration.toFixed(2));
-            const totalAvgGenerationAc = parseFloat(subClientTotalAvgGenerationAc.toFixed(2));
+            // Calculate average of daily avg generation values (matching Excel =AVERAGE formula)
+            const numberOfDays = subClientLoggerData.length;
+            const totalAvgGeneration = numberOfDays > 0 ? parseFloat((subClientTotalAvgGeneration / numberOfDays).toFixed(2)) : 0;
+            const totalAvgGenerationAc = numberOfDays > 0 ? parseFloat((subClientTotalAvgGenerationAc / numberOfDays).toFixed(2)) : 0;
 
             // Add subclient to report
             dailyReport.subClient.push({
