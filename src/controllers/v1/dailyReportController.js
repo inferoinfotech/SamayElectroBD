@@ -195,6 +195,17 @@ exports.generateDailyReport = async (req, res) => {
         const avgOfAvgGeneration = numberOfDays > 0 ? (mainClientTotalAvgGeneration / numberOfDays) : 0;
         const avgOfAvgGenerationAc = numberOfDays > 0 ? (mainClientTotalAvgGenerationAc / numberOfDays) : 0;
 
+        // Determine which capacity type was used for DC-based avg generation
+        let capacityBasisDC = '';
+        if (mainClientData.dcCapacityKwp && mainClientDcCapacityKwp > 0) {
+            capacityBasisDC = 'DC';
+        } else if (mainClientData.acCapacityKw && mainClientDcCapacityKwp > 0) {
+            capacityBasisDC = 'AC';
+        }
+
+        // AC-based avg generation always uses AC capacity
+        let capacityBasisAC = mainClientAcCapacityKw > 0 ? 'AC' : '';
+
         // Initialize daily report
         const dailyReport = new DailyReport({
             mainClientId,
@@ -203,6 +214,8 @@ exports.generateDailyReport = async (req, res) => {
             showLoggerColumns: showLoggerColumns === true, // Default to false if not provided
             showAvgColumn: showAvgColumn === true, // Default to false if not provided
             showAvgAcColumn: showAvgAcColumn === true, // Default to false if not provided
+            capacityBasisDC: capacityBasisDC, // Track which capacity was used for DC avg gen
+            capacityBasisAC: capacityBasisAC, // Track which capacity was used for AC avg gen
             mainClient: {
                 meterNumber: meterData[0].meterNumber,
                 meterType: meterData[0].meterType,
@@ -1715,6 +1728,49 @@ exports.downloadDailyReportExcel = async (req, res) => {
                 cell.font = { ...totalsStyle.font, color: { argb: 'FF000000' } };
             }
         });
+
+        // ====================
+        // NOTE ROW - Capacity Basis
+        // ====================
+        // Only add note if at least one avg column is shown
+        if (showAvgColumn || showAvgAcColumn) {
+            const noteRowNum = dataRowNum + 1; // One row after totals
+            const noteRow = worksheet.getRow(noteRowNum);
+            noteRow.height = 25; // Slightly taller for readability
+
+            // Determine which note to display based on what's shown and what capacity was used
+            let noteText = '';
+            if (showAvgColumn && dailyReport.capacityBasisDC) {
+                noteText = `Note: The Average Generation has been calculated on the basis of the plant ${dailyReport.capacityBasisDC} capacity.`;
+            } else if (showAvgAcColumn && dailyReport.capacityBasisAC) {
+                noteText = `Note: The Average Generation has been calculated on the basis of the plant ${dailyReport.capacityBasisAC} capacity.`;
+            }
+
+            if (noteText) {
+                // Merge cells across entire width (same as row 2)
+                worksheet.mergeCells(noteRowNum, 1, noteRowNum, totalColss);
+                const noteCell = worksheet.getCell(noteRowNum, 1);
+                noteCell.value = noteText;
+                noteCell.font = {
+                    name: 'Times New Roman',
+                    size: 10,
+                    bold: true,
+                    italic: true,
+                    color: { argb: 'FF000000' } // Black text
+                };
+                noteCell.alignment = {
+                    horizontal: 'center',
+                    vertical: 'middle'
+                };
+                noteCell.border = {
+                    top: { style: 'thin' },
+                    left: { style: 'thin' },
+                    bottom: { style: 'thin' },
+                    right: { style: 'thin' }
+                };
+            }
+        }
+
         // Set response headers
         res.setHeader(
             'Content-Type',
@@ -2717,6 +2773,42 @@ exports.downloadDailyReportPDF = async (req, res) => {
                     align: 'center'
                 });
         });
+
+        // ====================
+        // NOTE TEXT - Capacity Basis
+        // ====================
+        // Only add note if at least one avg column is shown
+        if (showAvgColumn || showAvgAcColumn) {
+            // Determine which note to display
+            let noteText = '';
+            if (showAvgColumn && dailyReport.capacityBasisDC) {
+                noteText = `Note: The Average Generation has been calculated on the basis of the plant ${dailyReport.capacityBasisDC} capacity.`;
+            } else if (showAvgAcColumn && dailyReport.capacityBasisAC) {
+                noteText = `Note: The Average Generation has been calculated on the basis of the plant ${dailyReport.capacityBasisAC} capacity.`;
+            }
+
+            if (noteText) {
+                currentY += rowHeights.totalsRow + 10; // Add some spacing after totals
+
+                // Check if we need a new page
+                if (currentY + 20 > doc.page.height - 20) {
+                    doc.addPage({
+                        size: 'A4',
+                        layout: 'landscape',
+                        margins: { top: 20, bottom: 20, left: 15, right: 15 }
+                    });
+                    currentY = 20;
+                }
+
+                doc.font('Times-BoldItalic')
+                    .fontSize(10)
+                    .fillColor(colors.blackText)
+                    .text(noteText, startX, currentY, {
+                        width: totalWidth,
+                        align: 'center'
+                    });
+            }
+        }
 
         // Finalize
         doc.end();
