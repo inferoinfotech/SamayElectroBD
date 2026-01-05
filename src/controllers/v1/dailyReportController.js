@@ -642,6 +642,27 @@ exports.downloadDailyReportExcel = async (req, res) => {
             return res.status(404).json({ message: 'Daily Report not found' });
         }
 
+        // Dynamically determine which capacity was used (since it may not be stored in old reports)
+        const mainClientData = dailyReport.mainClient.mainClientDetail;
+        let capacityBasisDC = '';
+        let capacityBasisAC = '';
+
+        // Check DC capacity basis
+        if (mainClientData.dcCapacityKwp && mainClientData.dcCapacityKwp > 0) {
+            capacityBasisDC = 'DC';
+        } else if (mainClientData.acCapacityKw && mainClientData.acCapacityKw > 0) {
+            capacityBasisDC = 'AC'; // Fallback to AC if DC not available
+        }
+
+        // AC capacity basis
+        if (mainClientData.acCapacityKw && mainClientData.acCapacityKw > 0) {
+            capacityBasisAC = 'AC';
+        }
+
+        // Override with stored values if they exist
+        if (dailyReport.capacityBasisDC) capacityBasisDC = dailyReport.capacityBasisDC;
+        if (dailyReport.capacityBasisAC) capacityBasisAC = dailyReport.capacityBasisAC;
+
         const workbook = new ExcelJS.Workbook();
         // Change sheet name to "Master Sheet"
         const worksheet = workbook.addWorksheet('Master Sheet');
@@ -1740,10 +1761,10 @@ exports.downloadDailyReportExcel = async (req, res) => {
 
             // Determine which note to display based on what's shown and what capacity was used
             let noteText = '';
-            if (showAvgColumn && dailyReport.capacityBasisDC) {
-                noteText = `Note: The Average Generation has been calculated on the basis of the plant ${dailyReport.capacityBasisDC} capacity.`;
-            } else if (showAvgAcColumn && dailyReport.capacityBasisAC) {
-                noteText = `Note: The Average Generation has been calculated on the basis of the plant ${dailyReport.capacityBasisAC} capacity.`;
+            if (showAvgColumn && capacityBasisDC) {
+                noteText = `Note: The Average Generation has been calculated on the basis of the plant ${capacityBasisDC} capacity.`;
+            } else if (showAvgAcColumn && capacityBasisAC) {
+                noteText = `Note: The Average Generation has been calculated on the basis of the plant ${capacityBasisAC} capacity.`;
             }
 
             if (noteText) {
@@ -1824,6 +1845,27 @@ exports.downloadDailyReportPDF = async (req, res) => {
         if (!dailyReport) {
             return res.status(404).json({ message: "Daily Report not found" });
         }
+
+        // Dynamically determine which capacity was used (since it may not be stored in old reports)
+        const mainClientData = dailyReport.mainClient.mainClientDetail;
+        let capacityBasisDC = '';
+        let capacityBasisAC = '';
+
+        // Check DC capacity basis
+        if (mainClientData.dcCapacityKwp && mainClientData.dcCapacityKwp > 0) {
+            capacityBasisDC = 'DC';
+        } else if (mainClientData.acCapacityKw && mainClientData.acCapacityKw > 0) {
+            capacityBasisDC = 'AC'; // Fallback to AC if DC not available
+        }
+
+        // AC capacity basis
+        if (mainClientData.acCapacityKw && mainClientData.acCapacityKw > 0) {
+            capacityBasisAC = 'AC';
+        }
+
+        // Override with stored values if they exist
+        if (dailyReport.capacityBasisDC) capacityBasisDC = dailyReport.capacityBasisDC;
+        if (dailyReport.capacityBasisAC) capacityBasisAC = dailyReport.capacityBasisAC;
 
         const filemonthName = getMonthName(dailyReport.month).toUpperCase();
         const year = dailyReport.year;
@@ -2781,30 +2823,20 @@ exports.downloadDailyReportPDF = async (req, res) => {
         if (showAvgColumn || showAvgAcColumn) {
             // Determine which note to display
             let noteText = '';
-            if (showAvgColumn && dailyReport.capacityBasisDC) {
-                noteText = `Note: The Average Generation has been calculated on the basis of the plant ${dailyReport.capacityBasisDC} capacity.`;
-            } else if (showAvgAcColumn && dailyReport.capacityBasisAC) {
-                noteText = `Note: The Average Generation has been calculated on the basis of the plant ${dailyReport.capacityBasisAC} capacity.`;
+            if (showAvgColumn && capacityBasisDC) {
+                noteText = `Note: The Average Generation has been calculated on the basis of the plant ${capacityBasisDC} capacity.`;
+            } else if (showAvgAcColumn && capacityBasisAC) {
+                noteText = `Note: The Average Generation has been calculated on the basis of the plant ${capacityBasisAC} capacity.`;
             }
 
             if (noteText) {
-                currentY += rowHeights.totalsRow + 10; // Add some spacing after totals
-
-                // Check if we need a new page
-                if (currentY + 20 > doc.page.height - 20) {
-                    doc.addPage({
-                        size: 'A4',
-                        layout: 'landscape',
-                        margins: { top: 20, bottom: 20, left: 15, right: 15 }
-                    });
-                    currentY = 20;
-                }
+                currentY += rowHeights.totalsRow + 3; // Proper spacing: totals row height + small gap
 
                 doc.font('Times-BoldItalic')
                     .fontSize(10)
                     .fillColor(colors.blackText)
-                    .text(noteText, startX, currentY, {
-                        width: totalWidth,
+                    .text(noteText, 15, currentY, {
+                        width: doc.page.width - 30,
                         align: 'center'
                     });
             }
