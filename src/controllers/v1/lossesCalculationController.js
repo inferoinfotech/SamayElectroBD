@@ -4664,6 +4664,20 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
           }
         }
       });
+
+      // Apply bold styling to all columns (A to infinite/lastColumn) for the specific dynamic rows
+      [grossInjectionRow, drawlRow, netInjectionRow].forEach(rowIdx => {
+        for (let c = 1; c <= lastColumn; c++) {
+          const cell = worksheet.getCell(rowIdx, c);
+          // Ensure we preserve existing font properties or set defaults if they don't exist
+          // We know these rows are set to size 10 'Times New Roman' in previous steps
+          cell.font = {
+            name: 'Times New Roman',
+            size: 10,
+            bold: true
+          };
+        }
+      });
     }
   }
 
