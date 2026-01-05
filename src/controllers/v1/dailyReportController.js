@@ -149,9 +149,9 @@ exports.generateDailyReport = async (req, res) => {
                         const avgGeneration = mainClientDcCapacityKwp > 0 ? (dailyExport / mainClientDcCapacityKwp) : 0;
                         // Calculate avg generation AC: export / acCapacityKw
                         const avgGenerationAc = mainClientAcCapacityKw > 0 ? (dailyExport / mainClientAcCapacityKw) : 0;
-                        loggerData.push({ 
-                            date: currentDate, 
-                            export: dailyExport, 
+                        loggerData.push({
+                            date: currentDate,
+                            export: dailyExport,
                             import: dailyImport,
                             avgGeneration: parseFloat(avgGeneration.toFixed(2)),
                             avgGenerationAc: parseFloat(avgGenerationAc.toFixed(2))
@@ -177,9 +177,9 @@ exports.generateDailyReport = async (req, res) => {
             const avgGeneration = mainClientDcCapacityKwp > 0 ? (dailyExport / mainClientDcCapacityKwp) : 0;
             // Calculate avg generation AC for last day: export / acCapacityKw
             const avgGenerationAc = mainClientAcCapacityKw > 0 ? (dailyExport / mainClientAcCapacityKw) : 0;
-            loggerData.push({ 
-                date: currentDate, 
-                export: dailyExport, 
+            loggerData.push({
+                date: currentDate,
+                export: dailyExport,
                 import: dailyImport,
                 avgGeneration: parseFloat(avgGeneration.toFixed(2)),
                 avgGenerationAc: parseFloat(avgGenerationAc.toFixed(2))
@@ -277,14 +277,14 @@ exports.generateDailyReport = async (req, res) => {
             let subClientTotalLoggerData = 0, subClientTotalInternalLosses = 0;
             let subClientTotalAvgGeneration = 0, subClientTotalAvgGenerationAc = 0;
             let subClientCurrentDate = '', dailyExport = 0, dailyImport = 0;
-            
+
             // Get DC Capacity for avg generation calculation
             // Convert to number and handle string values, null, undefined
             let dcCapacityKwp = 0;
-            
+
             // Try to get dcCapacityKwp from subClient object
             let rawDcCapacity = subClient.dcCapacityKwp;
-            
+
             // If not found, try to fetch it directly from database
             if (!rawDcCapacity || rawDcCapacity === null || rawDcCapacity === undefined || rawDcCapacity === '') {
                 try {
@@ -297,13 +297,13 @@ exports.generateDailyReport = async (req, res) => {
                     logger.error(`Error fetching dcCapacityKwp from database for subclient ${subClient.name}: ${err.message}`);
                 }
             }
-            
+
             // Check if field exists and has a value
             if (rawDcCapacity != null && rawDcCapacity !== undefined && rawDcCapacity !== '') {
                 // Try to convert to number, handling strings with commas or other formatting
                 const cleanedValue = String(rawDcCapacity).replace(/,/g, '').trim();
                 dcCapacityKwp = Number(cleanedValue);
-                
+
                 if (isNaN(dcCapacityKwp) || !Number.isFinite(dcCapacityKwp) || dcCapacityKwp <= 0) {
                     dcCapacityKwp = 0;
                     logger.warn(`DC Capacity (dcCapacityKwp) is invalid for subclient ${subClient.name} (ID: ${subClient._id}). Raw value: ${rawDcCapacity}, Cleaned: ${cleanedValue}, Converted: ${dcCapacityKwp}. Avg Generation will be 0.`);
@@ -317,11 +317,11 @@ exports.generateDailyReport = async (req, res) => {
             // Get AC Capacity for avg generation AC calculation
             let acCapacityKw = 0;
             let rawAcCapacity = subClient.acCapacityKw;
-            
+
             if (rawAcCapacity != null && rawAcCapacity !== undefined && rawAcCapacity !== '') {
                 const cleanedAcValue = String(rawAcCapacity).replace(/,/g, '').trim();
                 acCapacityKw = Number(cleanedAcValue);
-                
+
                 if (isNaN(acCapacityKw) || !Number.isFinite(acCapacityKw) || acCapacityKw <= 0) {
                     acCapacityKw = 0;
                     logger.warn(`AC Capacity (acCapacityKw) is invalid for subclient ${subClient.name} (ID: ${subClient._id}). Avg Generation AC will be 0.`);
@@ -1111,10 +1111,10 @@ exports.downloadDailyReportExcel = async (req, res) => {
         // Cell B6 - Export (already set above)
         // Dynamic column headers for main client
         let mainHeaderColIndex = 3; // Start from column C
-        
+
         if (showAvgColumn) {
             const avgHeaderCell = worksheet.getCell(6, mainHeaderColIndex);
-            avgHeaderCell.value = 'Avg Gen (DC)';
+            avgHeaderCell.value = 'Avg. Gen.';
             avgHeaderCell.font = {
                 name: 'Times New Roman',
                 size: 9,
@@ -1141,7 +1141,7 @@ exports.downloadDailyReportExcel = async (req, res) => {
 
         if (showAvgAcColumn) {
             const avgAcHeaderCell = worksheet.getCell(6, mainHeaderColIndex);
-            avgAcHeaderCell.value = 'Avg Gen (AC)';
+            avgAcHeaderCell.value = 'Avg. Gen.';
             avgAcHeaderCell.font = {
                 name: 'Times New Roman',
                 size: 9,
@@ -1165,7 +1165,7 @@ exports.downloadDailyReportExcel = async (req, res) => {
             };
             mainHeaderColIndex++;
         }
-        
+
         // Import header
         const importCol = String.fromCharCode(64 + mainHeaderColIndex);
         const importHeaderCell = worksheet.getCell(`${importCol}6`);
@@ -1204,13 +1204,13 @@ exports.downloadDailyReportExcel = async (req, res) => {
 
             // Avg Generation DC (if enabled)
             if (showAvgColumn) {
-                headers.push({ text: 'Avg Gen (DC)', color: '000000', offset: colOffset });
+                headers.push({ text: 'Avg. Gen.', color: '000000', offset: colOffset });
                 colOffset++;
             }
 
             // Avg Generation AC (if enabled)
             if (showAvgAcColumn) {
-                headers.push({ text: 'Avg Gen (AC)', color: '000000', offset: colOffset });
+                headers.push({ text: 'Avg. Gen.', color: '000000', offset: colOffset });
                 colOffset++;
             }
 
@@ -1346,10 +1346,10 @@ exports.downloadDailyReportExcel = async (req, res) => {
                 pattern: 'solid',
                 fgColor: { argb: bgColors.mainClient }
             };
-            
+
             // Dynamic column index for main client
             let mainDataColIndex = 3;
-            
+
             // Avg Generation DC (if enabled)
             if (showAvgColumn) {
                 const avgCell = row.getCell(mainDataColIndex);
@@ -1362,7 +1362,7 @@ exports.downloadDailyReportExcel = async (req, res) => {
                 };
                 mainDataColIndex++;
             }
-            
+
             // Avg Generation AC (if enabled)
             if (showAvgAcColumn) {
                 const avgAcCell = row.getCell(mainDataColIndex);
@@ -1375,7 +1375,7 @@ exports.downloadDailyReportExcel = async (req, res) => {
                 };
                 mainDataColIndex++;
             }
-            
+
             // Import
             const importCol = mainDataColIndex;
             const importCell = row.getCell(importCol);
@@ -1560,10 +1560,10 @@ exports.downloadDailyReportExcel = async (req, res) => {
             pattern: 'solid',
             fgColor: { argb: bgColors.mainClient }
         };
-        
+
         // Dynamic column index for main client totals
         let mainTotalColIndex = 3;
-        
+
         // Avg Generation DC total (if enabled)
         if (showAvgColumn) {
             const mainAvgCell = totalsRow.getCell(mainTotalColIndex);
@@ -1576,7 +1576,7 @@ exports.downloadDailyReportExcel = async (req, res) => {
             };
             mainTotalColIndex++;
         }
-        
+
         // Avg Generation AC total (if enabled)
         if (showAvgAcColumn) {
             const mainAvgAcCell = totalsRow.getCell(mainTotalColIndex);
@@ -1589,7 +1589,7 @@ exports.downloadDailyReportExcel = async (req, res) => {
             };
             mainTotalColIndex++;
         }
-        
+
         // Import
         const mainImportCol = mainTotalColIndex;
         const mainImportCell = totalsRow.getCell(mainImportCol);
@@ -2049,7 +2049,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
 
         // Main client headers
         let mainHeaderOffset = 0;
-        
+
         // Export
         doc.rect(15 + colWidths.date + (mainHeaderOffset * colWidths.mainExport), currentY, colWidths.mainExport, rowHeights.dataHeader)
             .lineWidth(0.5)
@@ -2071,7 +2071,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
             doc.font(headerFont)
                 .fontSize(headerFontSize)
                 .fillColor(colors.blackText)
-                .text('Avg Gen (DC)', 15 + colWidths.date + (mainHeaderOffset * colWidths.mainExport), currentY + 7, {
+                .text('Avg. Gen.', 15 + colWidths.date + (mainHeaderOffset * colWidths.mainExport), currentY + 7, {
                     width: colWidths.mainExport,
                     align: 'center'
                 });
@@ -2086,7 +2086,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
             doc.font(headerFont)
                 .fontSize(headerFontSize)
                 .fillColor(colors.blackText)
-                .text('Avg Gen (AC)', 15 + colWidths.date + (mainHeaderOffset * colWidths.mainExport), currentY + 7, {
+                .text('Avg. Gen.', 15 + colWidths.date + (mainHeaderOffset * colWidths.mainExport), currentY + 7, {
                     width: colWidths.mainExport,
                     align: 'center'
                 });
@@ -2132,7 +2132,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
                 doc.font(headerFont)
                     .fontSize(headerFontSize)
                     .fillColor(colors.blackText)
-                    .text('Avg Gen (DC)', startX + (colOffset * colWidths.subExport), currentY + 7, {
+                    .text('Avg. Gen.', startX + (colOffset * colWidths.subExport), currentY + 7, {
                         width: colWidths.subExport,
                         align: 'center'
                     });
@@ -2147,7 +2147,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
                 doc.font(headerFont)
                     .fontSize(headerFontSize)
                     .fillColor(colors.blackText)
-                    .text('Avg Gen (AC)', startX + (colOffset * colWidths.subExport), currentY + 7, {
+                    .text('Avg. Gen.', startX + (colOffset * colWidths.subExport), currentY + 7, {
                         width: colWidths.subExport,
                         align: 'center'
                     });
@@ -2257,7 +2257,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
 
             // Main client data
             let mainDataOffset = 0;
-            
+
             // Export
             doc.rect(15 + colWidths.date + (mainDataOffset * colWidths.mainExport), currentY, colWidths.mainExport, rowHeights.dataRow)
                 .lineWidth(0.5)
@@ -2504,7 +2504,7 @@ exports.downloadDailyReportPDF = async (req, res) => {
 
         // Main client totals
         let mainTotalsOffset = 0;
-        
+
         // Export total
         doc.rect(15 + colWidths.date + (mainTotalsOffset * colWidths.mainExport), currentY, colWidths.mainExport, rowHeights.totalsRow)
             .lineWidth(0.5)
@@ -2529,9 +2529,9 @@ exports.downloadDailyReportPDF = async (req, res) => {
                 .fillColor(colors.blackText)
                 .text(typeof dailyReport.mainClient.totalAvgGeneration === 'number' ? dailyReport.mainClient.totalAvgGeneration.toFixed(2) : (dailyReport.mainClient.totalAvgGeneration || '0.0'),
                     15 + colWidths.date + (mainTotalsOffset * colWidths.mainExport), yCentered, {
-                        width: colWidths.mainExport,
-                        align: 'center'
-                    });
+                    width: colWidths.mainExport,
+                    align: 'center'
+                });
             mainTotalsOffset++;
         }
 
@@ -2545,9 +2545,9 @@ exports.downloadDailyReportPDF = async (req, res) => {
                 .fillColor(colors.blackText)
                 .text(typeof dailyReport.mainClient.totalAvgGenerationAc === 'number' ? dailyReport.mainClient.totalAvgGenerationAc.toFixed(2) : (dailyReport.mainClient.totalAvgGenerationAc || '0.0'),
                     15 + colWidths.date + (mainTotalsOffset * colWidths.mainExport), yCentered, {
-                        width: colWidths.mainExport,
-                        align: 'center'
-                    });
+                    width: colWidths.mainExport,
+                    align: 'center'
+                });
             mainTotalsOffset++;
         }
 
