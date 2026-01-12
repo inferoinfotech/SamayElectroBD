@@ -1759,12 +1759,15 @@ exports.downloadDailyReportExcel = async (req, res) => {
             const noteRow = worksheet.getRow(noteRowNum);
             noteRow.height = 25; // Slightly taller for readability
 
-            // Determine which note to display based on what's shown and what capacity was used
+            // Determine which note to display based on what user selected
+            // Note should reflect user's selection, not what capacity was actually used
             let noteText = '';
-            if (showAvgColumn && capacityBasisDC) {
-                noteText = `Note: The Average Generation has been calculated on the basis of the plant ${capacityBasisDC} capacity.`;
-            } else if (showAvgAcColumn && capacityBasisAC) {
-                noteText = `Note: The Average Generation has been calculated on the basis of the plant ${capacityBasisAC} capacity.`;
+            if (showAvgColumn) {
+                // User selected DC capacity column - always show DC
+                noteText = `Note: The Average Generation has been calculated on the basis of the plant DC capacity.`;
+            } else if (showAvgAcColumn) {
+                // User selected AC capacity column - always show AC
+                noteText = `Note: The Average Generation has been calculated on the basis of the plant AC capacity.`;
             }
 
             if (noteText) {
@@ -2821,12 +2824,15 @@ exports.downloadDailyReportPDF = async (req, res) => {
         // ====================
         // Only add note if at least one avg column is shown
         if (showAvgColumn || showAvgAcColumn) {
-            // Determine which note to display
+            // Determine which note to display based on what user selected
+            // Note should reflect user's selection, not what capacity was actually used
             let noteText = '';
-            if (showAvgColumn && capacityBasisDC) {
-                noteText = `Note: The Average Generation has been calculated on the basis of the plant ${capacityBasisDC} capacity.`;
-            } else if (showAvgAcColumn && capacityBasisAC) {
-                noteText = `Note: The Average Generation has been calculated on the basis of the plant ${capacityBasisAC} capacity.`;
+            if (showAvgColumn) {
+                // User selected DC capacity column - always show DC
+                noteText = `Note: The Average Generation has been calculated on the basis of the plant DC capacity.`;
+            } else if (showAvgAcColumn) {
+                // User selected AC capacity column - always show AC
+                noteText = `Note: The Average Generation has been calculated on the basis of the plant AC capacity.`;
             }
 
             if (noteText) {
