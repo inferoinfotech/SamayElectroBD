@@ -148,15 +148,15 @@ exports.editSubClientField = async (req, res) => {
             return res.status(400).json({ message: `Field ${fieldName} does not exist` });
         }
 
-        // Get old value
-        const oldValue = fieldName.split('.').reduce((o, i) => (o ? o[i] : undefined), subClientObj);
+        // Get old value - return null instead of undefined if path doesn't exist
+        const oldValue = fieldName.split('.').reduce((o, i) => (o && o[i] !== undefined ? o[i] : null), subClientObj);
 
         // Create history entry
         const historyEntry = new historyModel({
             clientId: subClient._id,
             clientType: 'sub',
             fieldName: fieldName,
-            oldValue: oldValue,
+            oldValue: oldValue !== null ? oldValue : "null", // Convert null/undefined to string "null" for required field
             newValue: newValue,
             changedBy: req.user?._id,
             updatedAt: new Date()
