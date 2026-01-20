@@ -2786,7 +2786,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
         // Add CHECK-SUM (MWH and KWH)
         values.push(checkSumMWH);
-        values.push(checkSumMWH / 1000); // KWH
+        values.push(checkSumMWH * 1000); // KWH
 
 
         return values;
@@ -2825,7 +2825,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
         // Add CHECK-SUM (MWH and KWH)
         values.push(checkSumMWH);
-        values.push(checkSumMWH / 1000); // KWH
+        values.push(checkSumMWH * 1000); // KWH
 
         return values;
       },
@@ -2863,7 +2863,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
 
         // Add CHECK-SUM (MWH and KWH)
         values.push(checkSumMWH);
-        values.push(checkSumMWH / 1000); // KWH
+        values.push(checkSumMWH * 1000); // KWH
 
         return values;
       },
@@ -3304,7 +3304,7 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         checkSumMWHCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
         // CHECK-SUM KWH column
-        const checkSumKWH = checkSumMWH / 1000;
+        const checkSumKWH = checkSumMWH * 1000;
         const checkSumKWHCell = masterdataSheet.getCell(`${checkSumKWHCol}${rowIndex}`);
         checkSumKWHCell.value = checkSumKWH;
         checkSumKWHCell.numFmt = '0.0';

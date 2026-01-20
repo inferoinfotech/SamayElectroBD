@@ -8,7 +8,7 @@ const subClientSchema = new mongoose.Schema({
     name: { type: String, required: true },
     divisionName: { type: String },
     discom : { type: String },
-    consumerNo: { type: String, unique: true },
+    consumerNo: { type: String },
     // modemSrNo: { type: String },
 
     // ABT MAIN METER Details
