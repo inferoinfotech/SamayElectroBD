@@ -1760,10 +1760,10 @@ const exportLossesCalculationToExcel = async (lossesCalculationData) => {
         summarySheet.getCell(`C${currentRowNum}`).value = partClient.consumerNo || "";
         summarySheet.getCell(`C${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle" };
 
-        summarySheet.getCell(`D${currentRowNum}`).value = subClient.divisionName || "";
+        summarySheet.getCell(`D${currentRowNum}`).value = partClient.divisionName || subClient.divisionName || "";
         summarySheet.getCell(`D${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle", wrapText: true };
 
-        summarySheet.getCell(`E${currentRowNum}`).value = subClient.discom || "";
+        summarySheet.getCell(`E${currentRowNum}`).value = partClient.discom || subClient.discom || "";
         summarySheet.getCell(`E${currentRowNum}`).alignment = { horizontal: "center", vertical: "middle" };
 
         // F: Capacity (merge for partclients)
