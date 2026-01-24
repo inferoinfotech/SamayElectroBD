@@ -61,7 +61,7 @@ exports.getLossesCalculationData = async (req, res) => {
             const mainClientInjectedUnitsKWh = Math.round((entry.mainClient?.grossInjectionMWH || 0) * 1000);
             const daysInMonth = getDaysInMonth(entry.month, entry.year);
         const mainClientAvgGeneration = mainClientDcCapacityKwp > 0 && daysInMonth > 0
-            ? parseFloat(((mainClientInjectedUnitsKWh / daysInMonth) / mainClientDcCapacityKwp).toFixed(2))
+            ? (mainClientInjectedUnitsKWh / daysInMonth) / mainClientDcCapacityKwp
             : 0;
 
             return {
@@ -136,7 +136,7 @@ exports.getLossesCalculationData = async (req, res) => {
             entry.subClients.forEach(sc => {
                 const dcCapacityKwp = subClientCapacityMap.get(sc.name) || 0;
             sc.AvgGeneration = dcCapacityKwp > 0 && daysInMonth > 0
-                ? parseFloat(((sc.InjectedUnitsKWh / daysInMonth) / dcCapacityKwp).toFixed(2))
+                ? (sc.InjectedUnitsKWh / daysInMonth) / dcCapacityKwp
                 : 0;
             });
         });
