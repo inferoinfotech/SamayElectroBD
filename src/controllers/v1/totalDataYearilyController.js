@@ -60,9 +60,9 @@ exports.getLossesCalculationData = async (req, res) => {
             // Calculate main client avg generation
             const mainClientInjectedUnitsKWh = Math.round((entry.mainClient?.grossInjectionMWH || 0) * 1000);
             const daysInMonth = getDaysInMonth(entry.month, entry.year);
-            const mainClientAvgGeneration = mainClientDcCapacityKwp > 0 && daysInMonth > 0
-                ? (mainClientInjectedUnitsKWh / daysInMonth) / mainClientDcCapacityKwp
-                : 0;
+        const mainClientAvgGeneration = mainClientDcCapacityKwp > 0 && daysInMonth > 0
+            ? parseFloat(((mainClientInjectedUnitsKWh / daysInMonth) / mainClientDcCapacityKwp).toFixed(2))
+            : 0;
 
             return {
                 month: `${entry.month}-${entry.year}`,
@@ -135,9 +135,9 @@ exports.getLossesCalculationData = async (req, res) => {
             const daysInMonth = getDaysInMonth(entry.monthNum, entry.year);
             entry.subClients.forEach(sc => {
                 const dcCapacityKwp = subClientCapacityMap.get(sc.name) || 0;
-                sc.AvgGeneration = dcCapacityKwp > 0 && daysInMonth > 0
-                    ? parseFloat(((sc.InjectedUnitsKWh / daysInMonth) / dcCapacityKwp).toFixed(4))
-                    : 0;
+            sc.AvgGeneration = dcCapacityKwp > 0 && daysInMonth > 0
+                ? parseFloat(((sc.InjectedUnitsKWh / daysInMonth) / dcCapacityKwp).toFixed(2))
+                : 0;
             });
         });
 
@@ -390,7 +390,7 @@ exports.getLossesCalculationData = async (req, res) => {
                     }
                     
                     if (isAvgGenCol) {
-                        cell.numFmt = '0.0000'; // 4 decimal places for avg generation
+                        cell.numFmt = '0.00'; // 2 decimal places for avg generation
                     } else {
                         cell.numFmt = '0'; // No decimals for injected/drawl units
                     }
@@ -419,9 +419,9 @@ exports.getLossesCalculationData = async (req, res) => {
         totalRowValues.push({ formula: `SUM(${mainInjectedCol}5:${mainInjectedCol}${lastDataRowIndex})` });
         
         if (showAvgColumn) {
-            // Main client Avg Generation (D)
+            // Main client Avg Generation (D) - average of column
             const mainAvgCol = 'D';
-            totalRowValues.push({ formula: `SUM(${mainAvgCol}5:${mainAvgCol}${lastDataRowIndex})` });
+            totalRowValues.push({ formula: `AVERAGE(${mainAvgCol}5:${mainAvgCol}${lastDataRowIndex})` });
         }
         
         // Main client Drawl Units
@@ -436,7 +436,7 @@ exports.getLossesCalculationData = async (req, res) => {
             
             if (showAvgColumn) {
                 const avgCol = String.fromCharCode(64 + startCol + 1);
-                totalRowValues.push({ formula: `SUM(${avgCol}5:${avgCol}${lastDataRowIndex})` });
+                totalRowValues.push({ formula: `AVERAGE(${avgCol}5:${avgCol}${lastDataRowIndex})` });
             }
             
             const drawlCol = String.fromCharCode(64 + startCol + (showAvgColumn ? 2 : 1));
@@ -458,9 +458,20 @@ exports.getLossesCalculationData = async (req, res) => {
                 pattern: 'solid',
                 fgColor: { argb: 'FFD9D9D9' }
             };
-            // Format numbers to show exact values without decimals
+            // Format numbers to show exact values without decimals (avg shows 2 decimals)
             if (cell.value !== null && typeof cell.value === 'number' && cell.col > 2) {
-                cell.numFmt = '0';
+                let isAvgGenCol = false;
+                if (showAvgColumn) {
+                    if (cell.col === 4) {
+                        isAvgGenCol = true;
+                    } else if (cell.col > 3 + colsPerMainClient) {
+                        const subClientColIndex = cell.col - 3 - colsPerMainClient;
+                        if (subClientColIndex % colsPerSubClient === 2) {
+                            isAvgGenCol = true;
+                        }
+                    }
+                }
+                cell.numFmt = isAvgGenCol ? '0.00' : '0';
             }
         });
 
