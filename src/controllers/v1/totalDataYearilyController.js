@@ -383,7 +383,8 @@ exports.getLossesCalculationData = async (req, res) => {
                         // Subclient avg gen columns: for each subclient, it's the 2nd column (after injected)
                         else if (cell.col > 3 + colsPerMainClient) {
                             const subClientColIndex = cell.col - 3 - colsPerMainClient;
-                            if (subClientColIndex % colsPerSubClient === 2) {
+                            // For each subclient: injected(0), avg(1), drawl(2)
+                            if (subClientColIndex % colsPerSubClient === 1) {
                                 isAvgGenCol = true;
                             }
                         }
@@ -466,7 +467,8 @@ exports.getLossesCalculationData = async (req, res) => {
                         isAvgGenCol = true;
                     } else if (cell.col > 3 + colsPerMainClient) {
                         const subClientColIndex = cell.col - 3 - colsPerMainClient;
-                        if (subClientColIndex % colsPerSubClient === 2) {
+                        // For each subclient: injected(0), avg(1), drawl(2)
+                        if (subClientColIndex % colsPerSubClient === 1) {
                             isAvgGenCol = true;
                         }
                     }
