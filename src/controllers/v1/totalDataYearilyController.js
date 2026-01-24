@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const LossesCalculationData = require('../../models/v1/lossesCalculation.model');
 const SubClient = require('../../models/v1/subClient.model');
+const MainClient = require('../../models/v1/mainClient.model');
 const ExcelJS = require('exceljs');
 
 exports.getLossesCalculationData = async (req, res) => {
@@ -21,6 +22,25 @@ exports.getLossesCalculationData = async (req, res) => {
         ) {
             return res.status(400).json({ message: 'Invalid month or year range.' });
         }
+
+        // Fetch main client capacity (fallback if embedded data missing/stale)
+        const mainClientDoc = await MainClient.findById(mainClientId)
+            .select('dcCapacityKwp acCapacityKw')
+            .lean();
+
+        const normalizeCapacity = (value) => {
+            if (typeof value === 'string') {
+                value = parseFloat(value.replace(/,/g, '').trim());
+            }
+            if (!Number.isFinite(value) || value <= 0) {
+                return 0;
+            }
+            return value;
+        };
+
+        const mainClientDbCapacity =
+            normalizeCapacity(mainClientDoc?.dcCapacityKwp) ||
+            normalizeCapacity(mainClientDoc?.acCapacityKw);
 
         // Query LossesCalculationData between the range
         const data = await LossesCalculationData.find({
@@ -49,13 +69,11 @@ exports.getLossesCalculationData = async (req, res) => {
 
         const result = filteredData.map(entry => {
             // Get main client dcCapacityKwp
-            let mainClientDcCapacityKwp = entry.mainClient?.mainClientDetail?.dcCapacityKwp || entry.mainClient?.mainClientDetail?.acCapacityKw || 0;
-            if (typeof mainClientDcCapacityKwp === 'string') {
-                mainClientDcCapacityKwp = parseFloat(mainClientDcCapacityKwp.replace(/,/g, '').trim()) || 0;
-            }
-            if (!Number.isFinite(mainClientDcCapacityKwp) || mainClientDcCapacityKwp <= 0) {
-                mainClientDcCapacityKwp = 0;
-            }
+            let mainClientDcCapacityKwp =
+                normalizeCapacity(entry.mainClient?.mainClientDetail?.dcCapacityKwp) ||
+                normalizeCapacity(entry.mainClient?.mainClientDetail?.acCapacityKw) ||
+                mainClientDbCapacity ||
+                0;
 
             // Calculate main client avg generation
             const mainClientInjectedUnitsKWh = Math.round((entry.mainClient?.grossInjectionMWH || 0) * 1000);
