@@ -38,7 +38,14 @@ exports.getLossesCalculationData = async (req, res) => {
             (d.year < endYear || (d.year === endYear && d.month <= endMonth))
         );
 
-        const getDaysInMonth = (month, year) => new Date(year, month, 0).getDate();
+        const getDaysInMonth = (month, year) => {
+            const monthNumber = Number(month);
+            const yearNumber = Number(year);
+            if (!Number.isFinite(monthNumber) || !Number.isFinite(yearNumber)) {
+                return 0;
+            }
+            return new Date(yearNumber, monthNumber, 0).getDate();
+        };
 
         const result = filteredData.map(entry => {
             // Get main client dcCapacityKwp
@@ -53,8 +60,8 @@ exports.getLossesCalculationData = async (req, res) => {
             // Calculate main client avg generation
             const mainClientInjectedUnitsKWh = Math.round((entry.mainClient?.grossInjectionMWH || 0) * 1000);
             const daysInMonth = getDaysInMonth(entry.month, entry.year);
-            const mainClientAvgGeneration = mainClientDcCapacityKwp > 0
-                ? ((mainClientInjectedUnitsKWh / daysInMonth) / mainClientDcCapacityKwp) / 100
+            const mainClientAvgGeneration = mainClientDcCapacityKwp > 0 && daysInMonth > 0
+                ? (mainClientInjectedUnitsKWh / daysInMonth) / mainClientDcCapacityKwp
                 : 0;
 
             return {
@@ -128,8 +135,8 @@ exports.getLossesCalculationData = async (req, res) => {
             const daysInMonth = getDaysInMonth(entry.monthNum, entry.year);
             entry.subClients.forEach(sc => {
                 const dcCapacityKwp = subClientCapacityMap.get(sc.name) || 0;
-                sc.AvgGeneration = dcCapacityKwp > 0
-                    ? parseFloat((((sc.InjectedUnitsKWh / daysInMonth) / dcCapacityKwp) / 100).toFixed(4))
+                sc.AvgGeneration = dcCapacityKwp > 0 && daysInMonth > 0
+                    ? parseFloat(((sc.InjectedUnitsKWh / daysInMonth) / dcCapacityKwp).toFixed(4))
                     : 0;
             });
         });
