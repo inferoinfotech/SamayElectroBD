@@ -38,9 +38,8 @@ exports.getLossesCalculationData = async (req, res) => {
             return value;
         };
 
-        const mainClientDbCapacity =
-            normalizeCapacity(mainClientDoc?.dcCapacityKwp) ||
-            normalizeCapacity(mainClientDoc?.acCapacityKw);
+        const mainClientDbDcCapacity = normalizeCapacity(mainClientDoc?.dcCapacityKwp);
+        const mainClientDbAcCapacity = normalizeCapacity(mainClientDoc?.acCapacityKw);
 
         // Query LossesCalculationData between the range
         const data = await LossesCalculationData.find({
@@ -71,8 +70,9 @@ exports.getLossesCalculationData = async (req, res) => {
             // Get main client dcCapacityKwp
             let mainClientDcCapacityKwp =
                 normalizeCapacity(entry.mainClient?.mainClientDetail?.dcCapacityKwp) ||
+                mainClientDbDcCapacity ||
                 normalizeCapacity(entry.mainClient?.mainClientDetail?.acCapacityKw) ||
-                mainClientDbCapacity ||
+                mainClientDbAcCapacity ||
                 0;
 
             // Calculate main client avg generation
