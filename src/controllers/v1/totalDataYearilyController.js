@@ -38,6 +38,8 @@ exports.getLossesCalculationData = async (req, res) => {
             (d.year < endYear || (d.year === endYear && d.month <= endMonth))
         );
 
+        const getDaysInMonth = (month, year) => new Date(year, month, 0).getDate();
+
         const result = filteredData.map(entry => {
             // Get main client dcCapacityKwp
             let mainClientDcCapacityKwp = entry.mainClient?.mainClientDetail?.dcCapacityKwp || entry.mainClient?.mainClientDetail?.acCapacityKw || 0;
@@ -50,7 +52,10 @@ exports.getLossesCalculationData = async (req, res) => {
 
             // Calculate main client avg generation
             const mainClientInjectedUnitsKWh = Math.round((entry.mainClient?.grossInjectionMWH || 0) * 1000);
-            const mainClientAvgGeneration = mainClientDcCapacityKwp > 0 ? (mainClientInjectedUnitsKWh / mainClientDcCapacityKwp) : 0;
+            const daysInMonth = getDaysInMonth(entry.month, entry.year);
+            const mainClientAvgGeneration = mainClientDcCapacityKwp > 0
+                ? ((mainClientInjectedUnitsKWh / daysInMonth) / mainClientDcCapacityKwp) / 100
+                : 0;
 
             return {
                 month: `${entry.month}-${entry.year}`,
@@ -120,9 +125,12 @@ exports.getLossesCalculationData = async (req, res) => {
 
         // Calculate avg generation for subclients
         result.forEach(entry => {
+            const daysInMonth = getDaysInMonth(entry.monthNum, entry.year);
             entry.subClients.forEach(sc => {
                 const dcCapacityKwp = subClientCapacityMap.get(sc.name) || 0;
-                sc.AvgGeneration = dcCapacityKwp > 0 ? parseFloat((sc.InjectedUnitsKWh / dcCapacityKwp).toFixed(4)) : 0;
+                sc.AvgGeneration = dcCapacityKwp > 0
+                    ? parseFloat((((sc.InjectedUnitsKWh / daysInMonth) / dcCapacityKwp) / 100).toFixed(4))
+                    : 0;
             });
         });
 
