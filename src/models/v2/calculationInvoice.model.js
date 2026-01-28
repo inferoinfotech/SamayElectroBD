@@ -27,18 +27,70 @@ const calculationInvoiceSchema = new mongoose.Schema({
         }
     }],
     
-    // Solar Generation Date
+    // Solar Generation Date (legacy - kept for backward compatibility)
     solarGenerationMonth: {
         type: Number,
-        required: true,
+        required: false,
         min: 1,
         max: 12
     },
     
     solarGenerationYear: {
         type: Number,
-        required: true
+        required: false
     },
+    
+    // Solar Generation Months (new structure - supports multiple months)
+    solarGenerationMonths: [{
+        id: { type: String },
+        month: { type: Number, min: 1, max: 12 },
+        year: { type: Number },
+        policyId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Policy'
+        },
+        selectedPolicies: [{
+            policyItemId: {
+                type: mongoose.Schema.Types.ObjectId,
+                required: true
+            },
+            apply: {
+                type: Boolean,
+                default: true
+            }
+        }],
+        setOffEntry: {
+            generationUnit: { type: Number },
+            drawlUnit: { type: Number },
+            bankingCharges: { type: Number },
+            energyCharge: { type: Number },
+            totalSetoff: { type: Number }
+        },
+        todEntry: {
+            rate: { type: Number },
+            amount: { type: Number },
+            unit: { type: Number }
+        },
+        roofTop: {
+            billingCharge: { type: Number },
+            totalGeneration: { type: Number },
+            unit: { type: Number },
+            roofTopBanking: { type: Number },
+            anyOtherCredit: { type: Number },
+            anyOtherDebit: { type: Number }
+        },
+        windFarm: {
+            unit: { type: Number },
+            amount: { type: Number },
+            rate: { type: Number }
+        },
+        anyOther: {
+            credit: { type: Number },
+            debit: { type: Number },
+            tcsTds: { type: Number }
+        },
+        calculationTable: { type: mongoose.Schema.Types.Mixed } // Each month has its own calculation table
+    }],
     
     // Adjustment Billing Date
     adjustmentBillingMonth: {
@@ -53,7 +105,12 @@ const calculationInvoiceSchema = new mongoose.Schema({
         required: true
     },
     
-    // 5.1 Set Off Entry
+    // DGVCL CREDIT (shared across all months)
+    dgvclCredit: {
+        type: Number
+    },
+    
+    // 5.1 Set Off Entry (legacy - kept for backward compatibility)
     setOffEntry: {
         generationUnit: { type: Number },
         drawlUnit: { type: Number },
@@ -80,16 +137,18 @@ const calculationInvoiceSchema = new mongoose.Schema({
         anyOtherDebit: { type: Number }
     },
     
-    // 5.4 Wind Farm
+    // 5.4 Wind Farm (legacy - kept for backward compatibility)
     windFarm: {
         unit: { type: Number },
-        amount: { type: Number }
+        amount: { type: Number },
+        rate: { type: Number }
     },
     
-    // 5.5 Any Other
+    // 5.5 Any Other (legacy - kept for backward compatibility)
     anyOther: {
         credit: { type: Number },
-        debit: { type: Number }
+        debit: { type: Number },
+        tcsTds: { type: Number }
     },
     
     // 6. Manual Entry

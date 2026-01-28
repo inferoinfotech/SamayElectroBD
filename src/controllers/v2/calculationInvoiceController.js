@@ -83,22 +83,24 @@ exports.createCalculationInvoice = async (req, res) => {
       subClientId,
       policyId,
       selectedPolicies,
-      solarGenerationMonth,
-      solarGenerationYear,
+      solarGenerationMonth, // Legacy field
+      solarGenerationYear, // Legacy field
+      solarGenerationMonths, // New field - array of months
       adjustmentBillingMonth,
       adjustmentBillingYear,
-      setOffEntry,
-      todEntry,
-      roofTop,
-      windFarm,
-      anyOther,
+      dgvclCredit, // New field - shared DGVCL CREDIT
+      setOffEntry, // Legacy field
+      todEntry, // Legacy field
+      roofTop, // Legacy field
+      windFarm, // Legacy field
+      anyOther, // Legacy field
       manualEntry,
       notes,
     } = req.body;
 
-    if (!subClientId || !policyId) {
+    if (!subClientId) {
       return res.status(400).json({
-        message: 'Sub client ID and policy ID are required',
+        message: 'Sub client ID is required',
       });
     }
 
@@ -106,14 +108,43 @@ exports.createCalculationInvoice = async (req, res) => {
       return res.status(400).json({ message: 'Invalid sub client ID format' });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(policyId)) {
-      return res.status(400).json({ message: 'Invalid policy ID format' });
-    }
-
-    if (!solarGenerationMonth || !solarGenerationYear) {
-      return res.status(400).json({
-        message: 'Solar generation month and year are required',
-      });
+    // Check if using new structure (solarGenerationMonths) or legacy structure
+    const isNewStructure = solarGenerationMonths && Array.isArray(solarGenerationMonths) && solarGenerationMonths.length > 0;
+    
+    if (isNewStructure) {
+      // Validate new structure
+      if (!solarGenerationMonths[0].policyId) {
+        return res.status(400).json({
+          message: 'Policy ID is required for at least one month',
+        });
+      }
+      
+      // Validate each month has required fields
+      for (const month of solarGenerationMonths) {
+        if (!month.month || !month.year) {
+          return res.status(400).json({
+            message: 'Each month must have month and year',
+          });
+        }
+        if (month.policyId && !mongoose.Types.ObjectId.isValid(month.policyId)) {
+          return res.status(400).json({ message: 'Invalid policy ID format in month entry' });
+        }
+      }
+    } else {
+      // Legacy structure validation
+      if (!policyId) {
+        return res.status(400).json({
+          message: 'Policy ID is required',
+        });
+      }
+      if (!mongoose.Types.ObjectId.isValid(policyId)) {
+        return res.status(400).json({ message: 'Invalid policy ID format' });
+      }
+      if (!solarGenerationMonth || !solarGenerationYear) {
+        return res.status(400).json({
+          message: 'Solar generation month and year are required',
+        });
+      }
     }
 
     if (!adjustmentBillingMonth || !adjustmentBillingYear) {
@@ -128,32 +159,83 @@ exports.createCalculationInvoice = async (req, res) => {
       return res.status(404).json({ message: 'Sub client not found' });
     }
 
-    // Verify policy exists
-    const policy = await Policy.findById(policyId);
-    if (!policy) {
-      return res.status(404).json({ message: 'Policy not found' });
+    // Verify policy exists (for legacy structure or first month in new structure)
+    const policyToVerify = isNewStructure ? solarGenerationMonths[0].policyId : policyId;
+    if (policyToVerify) {
+      const policy = await Policy.findById(policyToVerify);
+      if (!policy) {
+        return res.status(404).json({ message: 'Policy not found' });
+      }
     }
 
     // Check if invoice already exists for this combination
-    const existingInvoice = await CalculationInvoice.findOne({
-      subClientId,
-      policyId,
-      solarGenerationMonth,
-      solarGenerationYear,
-      adjustmentBillingMonth,
-      adjustmentBillingYear,
-      isActive: true,
-    });
+    // For new structure, check by subClientId, adjustment dates, and month combinations
+    let existingInvoice;
+    if (isNewStructure) {
+      // Create a unique identifier from month combinations
+      const monthKeys = solarGenerationMonths.map(m => `${m.month}-${m.year}`).sort().join(',');
+      existingInvoice = await CalculationInvoice.findOne({
+        subClientId,
+        adjustmentBillingMonth,
+        adjustmentBillingYear,
+        isActive: true,
+        $or: [
+          { 'solarGenerationMonths': { $exists: true, $ne: [] } },
+          { solarGenerationMonth: { $exists: true } }
+        ]
+      });
+      
+      // If found, check if month combinations match
+      if (existingInvoice && existingInvoice.solarGenerationMonths) {
+        const existingMonthKeys = existingInvoice.solarGenerationMonths
+          .map(m => `${m.month}-${m.year}`)
+          .sort()
+          .join(',');
+        if (existingMonthKeys !== monthKeys) {
+          existingInvoice = null; // Different month combination, treat as new
+        }
+      }
+    } else {
+      // Legacy structure - use old query
+      existingInvoice = await CalculationInvoice.findOne({
+        subClientId,
+        policyId,
+        solarGenerationMonth,
+        solarGenerationYear,
+        adjustmentBillingMonth,
+        adjustmentBillingYear,
+        isActive: true,
+      });
+    }
 
     let calculationInvoice;
     if (existingInvoice) {
       // Update existing invoice
-      existingInvoice.selectedPolicies = selectedPolicies || existingInvoice.selectedPolicies || [];
-      existingInvoice.setOffEntry = setOffEntry || existingInvoice.setOffEntry || {};
-      existingInvoice.todEntry = todEntry || existingInvoice.todEntry || {};
-      existingInvoice.roofTop = roofTop || existingInvoice.roofTop || {};
-      existingInvoice.windFarm = windFarm || existingInvoice.windFarm || {};
-      existingInvoice.anyOther = anyOther || existingInvoice.anyOther || {};
+      if (isNewStructure) {
+        // Update new structure fields
+        existingInvoice.solarGenerationMonths = solarGenerationMonths || existingInvoice.solarGenerationMonths || [];
+        existingInvoice.dgvclCredit = dgvclCredit !== undefined ? dgvclCredit : existingInvoice.dgvclCredit;
+        // Update legacy fields for backward compatibility (use first month's data)
+        if (solarGenerationMonths && solarGenerationMonths.length > 0) {
+          existingInvoice.solarGenerationMonth = solarGenerationMonths[0].month;
+          existingInvoice.solarGenerationYear = solarGenerationMonths[0].year;
+          existingInvoice.policyId = solarGenerationMonths[0].policyId || existingInvoice.policyId;
+          existingInvoice.selectedPolicies = solarGenerationMonths[0].selectedPolicies || existingInvoice.selectedPolicies || [];
+          existingInvoice.setOffEntry = solarGenerationMonths[0].setOffEntry || existingInvoice.setOffEntry || {};
+          existingInvoice.todEntry = solarGenerationMonths[0].todEntry || existingInvoice.todEntry || {};
+          existingInvoice.roofTop = solarGenerationMonths[0].roofTop || existingInvoice.roofTop || {};
+          existingInvoice.windFarm = solarGenerationMonths[0].windFarm || existingInvoice.windFarm || {};
+          existingInvoice.anyOther = solarGenerationMonths[0].anyOther || existingInvoice.anyOther || {};
+        }
+      } else {
+        // Update legacy structure fields
+        existingInvoice.selectedPolicies = selectedPolicies || existingInvoice.selectedPolicies || [];
+        existingInvoice.setOffEntry = setOffEntry || existingInvoice.setOffEntry || {};
+        existingInvoice.todEntry = todEntry || existingInvoice.todEntry || {};
+        existingInvoice.roofTop = roofTop || existingInvoice.roofTop || {};
+        existingInvoice.windFarm = windFarm || existingInvoice.windFarm || {};
+        existingInvoice.anyOther = anyOther || existingInvoice.anyOther || {};
+      }
       existingInvoice.manualEntry = manualEntry || existingInvoice.manualEntry || {};
       existingInvoice.calculationTable = req.body.calculationTable || existingInvoice.calculationTable || {};
       if (notes !== undefined) {
@@ -163,24 +245,46 @@ exports.createCalculationInvoice = async (req, res) => {
       calculationInvoice = existingInvoice;
     } else {
       // Create new invoice
-      calculationInvoice = new CalculationInvoice({
+      const invoiceData = {
         subClientId,
-        policyId,
-        selectedPolicies: selectedPolicies || [],
-        solarGenerationMonth,
-        solarGenerationYear,
         adjustmentBillingMonth,
         adjustmentBillingYear,
-        setOffEntry: setOffEntry || {},
-        todEntry: todEntry || {},
-        roofTop: roofTop || {},
-        windFarm: windFarm || {},
-        anyOther: anyOther || {},
         manualEntry: manualEntry || {},
         calculationTable: req.body.calculationTable || {},
         notes,
         isActive: true,
-      });
+      };
+      
+      if (isNewStructure) {
+        // New structure
+        invoiceData.solarGenerationMonths = solarGenerationMonths || [];
+        invoiceData.dgvclCredit = dgvclCredit;
+        // Set legacy fields from first month for backward compatibility
+        if (solarGenerationMonths && solarGenerationMonths.length > 0) {
+          invoiceData.policyId = solarGenerationMonths[0].policyId;
+          invoiceData.solarGenerationMonth = solarGenerationMonths[0].month;
+          invoiceData.solarGenerationYear = solarGenerationMonths[0].year;
+          invoiceData.selectedPolicies = solarGenerationMonths[0].selectedPolicies || [];
+          invoiceData.setOffEntry = solarGenerationMonths[0].setOffEntry || {};
+          invoiceData.todEntry = solarGenerationMonths[0].todEntry || {};
+          invoiceData.roofTop = solarGenerationMonths[0].roofTop || {};
+          invoiceData.windFarm = solarGenerationMonths[0].windFarm || {};
+          invoiceData.anyOther = solarGenerationMonths[0].anyOther || {};
+        }
+      } else {
+        // Legacy structure
+        invoiceData.policyId = policyId;
+        invoiceData.selectedPolicies = selectedPolicies || [];
+        invoiceData.solarGenerationMonth = solarGenerationMonth;
+        invoiceData.solarGenerationYear = solarGenerationYear;
+        invoiceData.setOffEntry = setOffEntry || {};
+        invoiceData.todEntry = todEntry || {};
+        invoiceData.roofTop = roofTop || {};
+        invoiceData.windFarm = windFarm || {};
+        invoiceData.anyOther = anyOther || {};
+      }
+      
+      calculationInvoice = new CalculationInvoice(invoiceData);
       await calculationInvoice.save();
     }
 
@@ -355,17 +459,36 @@ exports.getCalculationInvoiceByCriteria = async (req, res) => {
       return res.status(400).json({ message: 'Invalid policy ID format' });
     }
 
-    const invoice = await CalculationInvoice.findOne({
+    // Try to find invoice using both old and new structures
+    const query = {
       subClientId: new mongoose.Types.ObjectId(subClientId),
-      policyId: new mongoose.Types.ObjectId(policyId),
-      solarGenerationMonth: parseInt(solarGenerationMonth),
-      solarGenerationYear: parseInt(solarGenerationYear),
       adjustmentBillingMonth: parseInt(adjustmentBillingMonth),
       adjustmentBillingYear: parseInt(adjustmentBillingYear),
       isActive: true,
-    })
+      $or: [
+        // Old structure
+        {
+          policyId: new mongoose.Types.ObjectId(policyId),
+          solarGenerationMonth: parseInt(solarGenerationMonth),
+          solarGenerationYear: parseInt(solarGenerationYear),
+        },
+        // New structure - check if solarGenerationMonths array contains matching month
+        {
+          'solarGenerationMonths': {
+            $elemMatch: {
+              month: parseInt(solarGenerationMonth),
+              year: parseInt(solarGenerationYear),
+              policyId: new mongoose.Types.ObjectId(policyId),
+            }
+          }
+        }
+      ]
+    };
+
+    const invoice = await CalculationInvoice.findOne(query)
       .populate('subClientId', 'name consumerNo')
-      .populate('policyId', 'name policies');
+      .populate('policyId', 'name policies')
+      .populate('solarGenerationMonths.policyId', 'name policies');
 
     if (!invoice) {
       logger.info(`No calculation invoice found for the specified criteria`);
