@@ -59,9 +59,13 @@ exports.getLossesDataForSubClient = async (req, res) => {
       });
     }
 
-    // Calculate generation unit and drawl unit
-    const generationUnit = subClientData.grossInjectionMWH ? subClientData.grossInjectionMWH * 1000 : null;
-    const drawlUnit = subClientData.drawlMWH ? subClientData.drawlMWH * 1000 * (-1) : null;
+    // Calculate generation unit and drawl unit (after losses)
+    const generationUnit = subClientData.grossInjectionMWHAfterLosses
+      ? subClientData.grossInjectionMWHAfterLosses * 1000
+      : null;
+    const drawlUnit = subClientData.drawlMWHAfterLosses
+      ? subClientData.drawlMWHAfterLosses * 1000 * (-1)
+      : null;
 
     logger.info(`Retrieved losses data for sub-client: ${subClientId}, month: ${month}, year: ${year}`);
     res.status(200).json({
@@ -69,6 +73,8 @@ exports.getLossesDataForSubClient = async (req, res) => {
       drawlUnit,
       grossInjectionMWH: subClientData.grossInjectionMWH,
       drawlMWH: subClientData.drawlMWH,
+      grossInjectionMWHAfterLosses: subClientData.grossInjectionMWHAfterLosses,
+      drawlMWHAfterLosses: subClientData.drawlMWHAfterLosses,
     });
   } catch (error) {
     logger.error(`Error retrieving losses data: ${error.message}`);

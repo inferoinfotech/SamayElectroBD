@@ -36,16 +36,62 @@ exports.assignPolicyToClient = async (req, res) => {
       return res.status(404).json({ message: 'Policy not found' });
     }
 
-    // Check if client-policy mapping already exists
-    const existingMapping = await ClientPolicy.findOne({
+    // Check if client already has any policy assigned (one policy per client rule)
+    const existingClientPolicy = await ClientPolicy.findOne({
       subClientId,
-      policyId,
     });
 
-    if (existingMapping) {
-      return res.status(409).json({
-        message: 'Policy is already assigned to this client',
-        clientPolicy: existingMapping,
+    // If client already has a policy, update it with the new policy
+    if (existingClientPolicy) {
+      // If it's the same policy, return conflict
+      if (existingClientPolicy.policyId.toString() === policyId.toString()) {
+        return res.status(409).json({
+          message: 'This policy is already assigned to this client',
+          clientPolicy: existingClientPolicy,
+        });
+      }
+      
+      // Update the existing client policy with the new policy
+      existingClientPolicy.policyId = policyId;
+      
+      // If policies array is provided, use it; otherwise create default entries
+      if (policies && Array.isArray(policies)) {
+        // Validate that all policyItemIds exist in the new policy
+        const policyItemIds = policy.policies.map((p) => p._id.toString());
+        for (const policyItem of policies) {
+          if (!policyItem.policyItemId) {
+            return res.status(400).json({
+              message: 'Each policy item must have a policyItemId',
+            });
+          }
+          if (!policyItemIds.includes(policyItem.policyItemId.toString())) {
+            return res.status(400).json({
+              message: `Sub-policy with ID ${policyItem.policyItemId} does not exist in the policy`,
+            });
+          }
+        }
+        existingClientPolicy.policies = policies;
+      } else {
+        // Create default entries for all sub-policies from the new policy
+        existingClientPolicy.policies = policy.policies.map((p) => ({
+          policyItemId: p._id,
+          apply: true,
+        }));
+      }
+      
+      existingClientPolicy.effectiveDate = effectiveDate || new Date();
+      if (isActive !== undefined) {
+        existingClientPolicy.isActive = isActive;
+      }
+      
+      await existingClientPolicy.save();
+      await existingClientPolicy.populate('subClientId', 'name consumerNo');
+      await existingClientPolicy.populate('policyId', 'name');
+      
+      logger.info(`Policy updated for client: ${subClientId} -> ${policyId}`);
+      return res.status(200).json({
+        message: 'Client policy updated successfully (replaced with new policy)',
+        clientPolicy: existingClientPolicy,
       });
     }
 

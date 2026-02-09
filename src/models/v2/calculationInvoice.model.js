@@ -161,6 +161,7 @@ const calculationInvoiceSchema = new mongoose.Schema({
         pfRebateAmount: { type: Number },
         totalCurrentMonthBillAmount: { type: Number },
         totalAdjustmentAmount: { type: Number },
+        settlementThreshold: { type: Number },
         anyOther: { type: Number },
         // Dynamic custom fields
         customFields: [{
