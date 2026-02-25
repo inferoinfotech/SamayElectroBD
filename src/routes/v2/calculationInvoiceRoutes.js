@@ -10,6 +10,9 @@ router.get('/losses-data', verifyToken, calculationInvoiceController.getLossesDa
 // Create a new calculation invoice
 router.post('/create', verifyToken, calculationInvoiceController.createCalculationInvoice);
 
+// Export Unit Credit Calculation to Excel (POST with same payload as create)
+router.post('/export-excel', verifyToken, calculationInvoiceController.exportCalculationToExcel);
+
 // Get all calculation invoices
 router.get('/', verifyToken, calculationInvoiceController.getAllCalculationInvoices);
 
