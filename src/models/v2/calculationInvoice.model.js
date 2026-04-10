@@ -82,7 +82,8 @@ const calculationInvoiceSchema = new mongoose.Schema({
         windFarm: {
             unit: { type: Number },
             amount: { type: Number },
-            rate: { type: Number }
+            rate: { type: Number },
+            electricityDuty: { type: Number }
         },
         anyOther: {
             credit: { type: Number },
@@ -141,7 +142,8 @@ const calculationInvoiceSchema = new mongoose.Schema({
     windFarm: {
         unit: { type: Number },
         amount: { type: Number },
-        rate: { type: Number }
+        rate: { type: Number },
+        electricityDuty: { type: Number }
     },
     
     // 5.5 Any Other (legacy - kept for backward compatibility)
