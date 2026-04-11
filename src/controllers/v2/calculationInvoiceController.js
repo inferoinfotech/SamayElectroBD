@@ -513,6 +513,80 @@ exports.getCalculationInvoiceByCriteria = async (req, res) => {
   }
 };
 
+/**
+ * Find a calculation invoice by sub-client, policy, and solar generation month/year only.
+ * Ignores adjustment billing month/year so prior Step 5 total consumption can be loaded for row 1.5
+ * even when the user saved the previous month under a different adjustment billing period.
+ */
+exports.getCalculationInvoiceBySolarPeriod = async (req, res) => {
+  try {
+    const {
+      subClientId,
+      policyId,
+      solarGenerationMonth,
+      solarGenerationYear,
+    } = req.query;
+
+    if (!subClientId || !policyId || !solarGenerationMonth || !solarGenerationYear) {
+      return res.status(400).json({
+        message: 'Sub client ID, policy ID, solar generation month, and solar generation year are required',
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(subClientId)) {
+      return res.status(400).json({ message: 'Invalid sub client ID format' });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(policyId)) {
+      return res.status(400).json({ message: 'Invalid policy ID format' });
+    }
+
+    const sm = parseInt(solarGenerationMonth, 10);
+    const sy = parseInt(solarGenerationYear, 10);
+
+    const query = {
+      subClientId: new mongoose.Types.ObjectId(subClientId),
+      isActive: true,
+      $or: [
+        {
+          policyId: new mongoose.Types.ObjectId(policyId),
+          solarGenerationMonth: sm,
+          solarGenerationYear: sy,
+        },
+        {
+          solarGenerationMonths: {
+            $elemMatch: {
+              month: sm,
+              year: sy,
+              policyId: new mongoose.Types.ObjectId(policyId),
+            },
+          },
+        },
+      ],
+    };
+
+    const invoice = await CalculationInvoice.findOne(query)
+      .sort({ updatedAt: -1 })
+      .populate('subClientId', 'name consumerNo')
+      .populate('policyId', 'name policies')
+      .populate('solarGenerationMonths.policyId', 'name policies');
+
+    if (!invoice) {
+      logger.info('No calculation invoice found for the specified solar period');
+      return res.status(404).json({
+        message: 'No calculation invoice found for the specified solar period',
+        invoice: null,
+      });
+    }
+
+    logger.info(`Retrieved calculation invoice by solar period: ${invoice._id}`);
+    res.status(200).json({ invoice });
+  } catch (error) {
+    logger.error(`Error retrieving calculation invoice by solar period: ${error.message}`);
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // Month names for Excel display
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -560,11 +634,27 @@ function applyCellStyle(cell, opts = {}) {
   if (opts.numFmt) cell.numFmt = opts.numFmt;
 }
 
+/** Footer note for 2021-style export (frontend sets policy2021Style; static ₹2.25/kWh × row 1.10 units). */
+function buildPolicy2021SurplusFooterText(calculationTable) {
+  const raw = calculationTable?.section1?.['1.10']?.unitsInKwh;
+  let n = typeof raw === 'number' ? raw : parseFloat(String(raw ?? '').replace(/,/g, ''));
+  if (!Number.isFinite(n)) n = 0;
+  const rate = 2.25;
+  let unitsDisplay = n === 0 ? '0' : (Number.isInteger(n) ? String(n) : n.toFixed(4).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, ''));
+  const amt = n * rate;
+  const parts = amt.toFixed(2).split('.');
+  const intWithCommas = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const amountStr = `${intWithCommas}.${parts[1]}`;
+  return `Surplus Energy after Set-Off ( Inadvertent Energy ) :- ${unitsDisplay} units × ₹${rate}→ approx. ₹${amountStr} payable by DISCOM. Note:- This is indicative only. For exact figures, please reach out to the relevant DISCOM  Division office`;
+}
+
 /**
  * Build Unit Credit Calculation Excel and return workbook.
  * Expects payload with: subClientId, solarGenerationMonths, adjustmentBillingMonth, adjustmentBillingYear, calculationTable.
+ * @param {{ policy2021Style?: boolean }} [excelOptions]
  */
-function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculationTable) {
+function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculationTable, excelOptions = {}) {
+  const policy2021Style = !!excelOptions.policy2021Style;
   const workbook = new ExcelJS.Workbook();
   const ws = workbook.addWorksheet('Final Summary', { views: [{ rightToLeft: false }] });
 
@@ -631,7 +721,9 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
     return workbook;
   }
 
-  const section1Order = ['1.1', '1.2', '1.3', '1.4', '1.5', '1.6', '1.7', '1.8', '1.9', '1.10'];
+  const section1Order = policy2021Style
+    ? ['1.1', '1.2', '1.3', '1.4', '1.9', '1.10']
+    : ['1.1', '1.2', '1.3', '1.4', '1.5', '1.6', '1.7', '1.8', '1.9', '1.10'];
   const section2Order = ['2.1', '2.2', '2.3', '2.4'];
 
   function writeRow(srNo, particulars, units, rate, credit, debit, remark, options = {}) {
@@ -777,7 +869,9 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
     '1.7': 'Maxi.30% Eligible - This is indicative only. For exact figures, please reach out to the relevant DISCOM Division office',
     '1.8': 'As per RE Policy2023 Maxi.30% Eligible for Set-Off Banked Energy @ Net Consumption from DISCOM',
     '1.9': 'TOTAL Set-Off',
-    '1.10': 'Inadvertent Banked Energy = B - F if Any ( LAPSED )',
+    '1.10': policy2021Style
+      ? 'Surplus Energy after Set-Off ( Inadvertent Energy ) SELL Units to DISCOM'
+      : 'Inadvertent Banked Energy = B - F if Any ( LAPSED )',
   };
 
   const section2FallbackLabels = {
@@ -859,7 +953,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
         };
       }
 
-      if (key === '1.10') {
+      if (key === '1.10' && !policy2021Style) {
         mainLabel = {
           richText: [
             { text: 'Inadvertent Banked Energy = B - F if Any ( ', font: { bold: true, size: 10, color: { argb: '000000' }, name: 'Times New Roman' } },
@@ -1069,6 +1163,23 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
     rowAfterFooter = endFooterRow + 1;
   }
 
+  if (policy2021Style) {
+    const noteText = buildPolicy2021SurplusFooterText(calculationTable);
+    ws.mergeCells(`A${rowNum}:G${rowNum}`);
+    const noteCell = ws.getCell(`A${rowNum}`);
+    noteCell.value = noteText;
+    applyCellStyle(noteCell, {
+      horizontal: 'left',
+      vertical: 'top',
+      wrapText: true,
+      bold: false,
+      size: 10,
+      fill: 'FFFFFF',
+    });
+    ws.getRow(rowNum).height = 78;
+    rowNum += 1;
+  }
+
   // Apply requested Borders
   // 1. Top of Row 2
   ws.getRow(2).eachCell(cell => {
@@ -1118,6 +1229,7 @@ exports.exportCalculationToExcel = async (req, res) => {
       adjustmentBillingMonth,
       adjustmentBillingYear,
       calculationTable,
+      policy2021Style,
     } = req.body;
 
     if (!subClientId) {
@@ -1147,7 +1259,9 @@ exports.exportCalculationToExcel = async (req, res) => {
     const adjYear = adjustmentBillingYear != null ? Number(adjustmentBillingYear) : 0;
     const adjustmentLabel = adjMonth && adjYear ? `${monthNames[adjMonth - 1] || ''}-${String(adjYear).slice(-2)}` : '';
 
-    const workbook = buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculationTable || {});
+    const workbook = buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculationTable || {}, {
+      policy2021Style: policy2021Style === true || policy2021Style === 'true',
+    });
 
     const sanitize = (str) => (str || '').replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, ' ').trim();
     const fileName = `Unit Credit Calculation - ${sanitize(clientName) || 'Client'} ${adjustmentLabel || 'Report'}.xlsx`;

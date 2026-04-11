@@ -19,6 +19,9 @@ router.get('/', verifyToken, calculationInvoiceController.getAllCalculationInvoi
 // Get calculation invoice by criteria (subClientId, policyId, dates)
 router.get('/by-criteria', verifyToken, calculationInvoiceController.getCalculationInvoiceByCriteria);
 
+// Get calculation invoice by solar period only (ignores adjustment billing; latest match by updatedAt)
+router.get('/by-solar-period', verifyToken, calculationInvoiceController.getCalculationInvoiceBySolarPeriod);
+
 // Get a single calculation invoice by ID
 router.get('/:invoiceId', verifyToken, calculationInvoiceController.getCalculationInvoiceById);
 
