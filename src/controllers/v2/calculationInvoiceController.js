@@ -624,6 +624,18 @@ function formatNum(val) {
   return isNaN(n) ? String(val) : n;
 }
 
+function hasValueForExcel(val) {
+  if (val === undefined || val === null) return false;
+  if (typeof val === 'string') return val.trim() !== '';
+  if (typeof val === 'number') return Number.isFinite(val);
+  return String(val).trim() !== '';
+}
+
+function rowHasAnyCFData(row) {
+  if (!row || typeof row !== 'object') return false;
+  return ['unitsInKwh', 'rate', 'creditAmount', 'debitAmount'].some((k) => hasValueForExcel(row[k]));
+}
+
 function applyCellStyle(cell, opts = {}) {
   const font = { name: 'Times New Roman', size: opts.size || 10, bold: !!opts.bold, italic: !!opts.italic };
   if (opts.fontColor) font.color = { argb: opts.fontColor };
@@ -645,7 +657,10 @@ function buildPolicy2021SurplusFooterText(calculationTable) {
   const parts = amt.toFixed(2).split('.');
   const intWithCommas = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   const amountStr = `${intWithCommas}.${parts[1]}`;
-  return `Surplus Energy after Set-Off ( Inadvertent Energy ) :- ${unitsDisplay} units × ₹${rate}→ approx. ₹${amountStr} payable by DISCOM. Note:- This is indicative only. For exact figures, please reach out to the relevant DISCOM  Division office`;
+  return {
+    mainText: `Surplus Energy after Set-Off ( Inadvertent Energy ) :- ${unitsDisplay} units × ₹${rate}→ approx. ₹${amountStr} payable by DISCOM.`,
+    noteText: ' Note:- This is indicative only. For exact figures, please reach out to the relevant DISCOM  Division office',
+  };
 }
 
 /**
@@ -724,7 +739,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
   const section1Order = policy2021Style
     ? ['1.1', '1.2', '1.3', '1.4', '1.9', '1.10']
     : ['1.1', '1.2', '1.3', '1.4', '1.5', '1.6', '1.7', '1.8', '1.9', '1.10'];
-  const section2Order = ['2.1', '2.2', '2.3', '2.4'];
+  const section2Order = ['2.1', '2.2', '2.3', '2.4', '2.5'];
 
   function writeRow(srNo, particulars, units, rate, credit, debit, remark, options = {}) {
     const r = ws.getRow(rowNum);
@@ -857,6 +872,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
     '2.2': 2,
     '2.3': 3,
     '2.4': 4,
+    '2.5': 5,
   };
 
   const section1FallbackLabels = {
@@ -879,6 +895,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
     '2.2': 'TCS / TDS',
     '2.3': 'Roof Top Solar',
     '2.4': 'Roof Top Solar-SELL Unit',
+    '2.5': 'Wind Farm',
 
   };
 
@@ -998,7 +1015,12 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
         };
       }
 
-      writeRow(mainSr, mainLabel, row.unitsInKwh, row.rate, row.creditAmount, row.debitAmount, row.remark, mainOpts);
+      let rowRemark = row.remark;
+      if (!policy2021Style && ['1.5', '1.6', '1.7'].includes(key) && !hasValueForExcel(row.unitsInKwh)) {
+        rowRemark = 'Data Not Available';
+      }
+
+      writeRow(mainSr, mainLabel, row.unitsInKwh, row.rate, row.creditAmount, row.debitAmount, rowRemark, mainOpts);
 
       if (row.subRows && typeof row.subRows === 'object') {
         const subKeys = Object.keys(row.subRows).filter((sk) => {
@@ -1033,6 +1055,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
     for (const key of section2Order) {
       const row = calculationTable.section2[key];
       if (!row) continue;
+      if (['2.3', '2.4', '2.5'].includes(key) && !rowHasAnyCFData(row)) continue;
       const mainSr = section2SrMap[key] || '';
       const mainLabel = (row.particulars && row.particulars !== key) ? row.particulars : (section2FallbackLabels[key] || key);
       writeRow(mainSr, mainLabel, row.unitsInKwh, row.rate, row.creditAmount, row.debitAmount, row.remark, { bold: false, italicNumeric: true, rateTwoDecimals: true, colStyles: { 2: { bold: true, italic: false }, 4: { italic: key === '2.1', numFmt: '"₹" #,##0.0' }, 5: { numFmt: '"₹" #,##0.0' } } });
@@ -1164,18 +1187,18 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
   }
 
   if (policy2021Style) {
-    const noteText = buildPolicy2021SurplusFooterText(calculationTable);
+    const { mainText, noteText } = buildPolicy2021SurplusFooterText(calculationTable);
     ws.mergeCells(`A${rowNum}:G${rowNum}`);
     const noteCell = ws.getCell(`A${rowNum}`);
-    noteCell.value = noteText;
-    applyCellStyle(noteCell, {
-      horizontal: 'left',
-      vertical: 'top',
-      wrapText: true,
-      bold: false,
-      size: 10,
-      fill: 'FFFFFF',
-    });
+    noteCell.value = {
+      richText: [
+        { text: mainText, font: { name: 'Times New Roman', size: 12, bold: true } },
+        { text: noteText, font: { name: 'Times New Roman', size: 10, italic: true } },
+      ],
+    };
+    noteCell.alignment = { horizontal: 'left', vertical: 'top', wrapText: true };
+    noteCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF00' } };
+    noteCell.border = thinBorder;
     ws.getRow(rowNum).height = 78;
     rowNum += 1;
   }
@@ -1242,14 +1265,14 @@ exports.exportCalculationToExcel = async (req, res) => {
     const subClient = await SubClient.findById(subClientId).select('name');
     const clientName = subClient ? (subClient.name || '').trim() : '';
 
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
     let solarLabel = '';
     if (solarGenerationMonths && Array.isArray(solarGenerationMonths) && solarGenerationMonths.length > 0) {
       solarLabel = solarGenerationMonths
         .map((m) => {
           const mo = m.month != null ? m.month : 0;
           const yr = m.year != null ? m.year : 0;
-          return `${monthNames[mo - 1] || ''}-${String(yr).slice(-2)}`;
+          return `${monthNames[mo - 1] || ''} ${yr}`;
         })
         .filter(Boolean)
         .join(', ') || '';
@@ -1257,14 +1280,14 @@ exports.exportCalculationToExcel = async (req, res) => {
 
     const adjMonth = adjustmentBillingMonth != null ? Number(adjustmentBillingMonth) : 0;
     const adjYear = adjustmentBillingYear != null ? Number(adjustmentBillingYear) : 0;
-    const adjustmentLabel = adjMonth && adjYear ? `${monthNames[adjMonth - 1] || ''}-${String(adjYear).slice(-2)}` : '';
+    const adjustmentLabel = adjMonth && adjYear ? `${monthNames[adjMonth - 1] || ''} ${adjYear}` : '';
 
     const workbook = buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculationTable || {}, {
       policy2021Style: policy2021Style === true || policy2021Style === 'true',
     });
 
     const sanitize = (str) => (str || '').replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, ' ').trim();
-    const fileName = `Unit Credit Calculation - ${sanitize(clientName) || 'Client'} ${adjustmentLabel || 'Report'}.xlsx`;
+    const fileName = `Unit Credit Calculation - ${sanitize(clientName) || 'Client'} ${sanitize(solarLabel) || 'Report'}.xlsx`;
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
