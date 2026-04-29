@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 require('./src/config/db');  // Database connection setup
+const { testConnection } = require('./src/config/cloudinary');  // Cloudinary connection
 
 const authRoutes = require('./src/routes/v1/authRoutes');
 const mainClientRoutes = require('./src/routes/v1/mainClientRoutes');  // Main Client routes
@@ -20,9 +21,16 @@ const ClientProgressField = require('./src/routes/v1/ClientProgressFIledRoutes')
 const policyRoutes = require('./src/routes/v2/policyRoutes');  // Policy routes
 const clientPolicyRoutes = require('./src/routes/v2/clientPolicyRoutes');  // Client Policy routes
 const calculationInvoiceRoutes = require('./src/routes/v2/calculationInvoiceRoutes');  // Calculation Invoice routes
+const emailSendRoutes = require('./src/routes/v2/emailSendRoutes');  // Email Send routes
+const emailConfigRoutes = require('./src/routes/v2/emailConfigRoutes');  // Email Config routes
+const formatDataRoutes = require('./src/routes/v2/formatDataRoutes'); // Format Data routes
 
 const app = express();
 app.use(express.json());  // Body parsing middleware
+
+// Serve static files (for logo and other public assets)
+app.use('/public', express.static('public'));
+
 const allowedOrigins = ["http://localhost:5173", "https://samayelectro.vercel.app", "https://www.samayelectro.com", "https://samay-electro-fd-pd63.vercel.app"];
 
 app.get('/', (req, res) => {
@@ -55,8 +63,14 @@ app.use('/api/v1/totalDataYearily',totalDataYearlyRoutes);
 app.use('/api/v1/policy', policyRoutes);  // Policy routes
 app.use('/api/v1/client-policy', clientPolicyRoutes);  // Client Policy routes
 app.use('/api/v1/calculation-invoice', calculationInvoiceRoutes);  // Calculation Invoice routes
+app.use('/api/v1/email-send', emailSendRoutes);  // Email Send routes
+app.use('/api/v1/email-config', emailConfigRoutes);  // Email Config routes
+app.use('/api/v1/format-data', formatDataRoutes); // Format Data routes
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
+  
+  // Test Cloudinary connection
+  await testConnection();
 });

@@ -11,6 +11,8 @@ router.post('/login', authController.login);
 // Forget Password (Send OTP)
 router.post('/forget-password', authController.forgetPassword);
 
+
+
 // Verify OTP
 router.post('/verify-otp', authController.verifyOTP);
 
