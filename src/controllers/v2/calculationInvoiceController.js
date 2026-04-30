@@ -589,33 +589,34 @@ exports.getCalculationInvoiceBySolarPeriod = async (req, res) => {
 
 // Month names for Excel display
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const BORDER_COLOR = { argb: 'FF000000' };
 
 const thinBorder = {
-  top: { style: 'thin' },
-  left: { style: 'thin' },
-  bottom: { style: 'thin' },
-  right: { style: 'thin' },
+  top: { style: 'thin', color: BORDER_COLOR },
+  left: { style: 'thin', color: BORDER_COLOR },
+  bottom: { style: 'thin', color: BORDER_COLOR },
+  right: { style: 'thin', color: BORDER_COLOR },
 };
 
 const mediumHeaderBorder = {
-  top: { style: 'medium' },
-  left: { style: 'thin' },
-  bottom: { style: 'medium' },
-  right: { style: 'thin' },
+  top: { style: 'medium', color: BORDER_COLOR },
+  left: { style: 'thin', color: BORDER_COLOR },
+  bottom: { style: 'medium', color: BORDER_COLOR },
+  right: { style: 'thin', color: BORDER_COLOR },
 };
 
 const mediumTopBorder = {
-  top: { style: 'medium' },
-  left: { style: 'thin' },
-  bottom: { style: 'thin' },
-  right: { style: 'thin' },
+  top: { style: 'medium', color: BORDER_COLOR },
+  left: { style: 'thin', color: BORDER_COLOR },
+  bottom: { style: 'thin', color: BORDER_COLOR },
+  right: { style: 'thin', color: BORDER_COLOR },
 };
 
 const mediumBottomBorder = {
-  top: { style: 'thin' },
-  left: { style: 'thin' },
-  bottom: { style: 'medium' },
-  right: { style: 'thin' },
+  top: { style: 'thin', color: BORDER_COLOR },
+  left: { style: 'thin', color: BORDER_COLOR },
+  bottom: { style: 'medium', color: BORDER_COLOR },
+  right: { style: 'thin', color: BORDER_COLOR },
 };
 
 function formatNum(val) {
@@ -670,8 +671,26 @@ function buildPolicy2021SurplusFooterText(calculationTable) {
  */
 function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculationTable, excelOptions = {}) {
   const policy2021Style = !!excelOptions.policy2021Style;
+  const appliedPolicyRows = Array.isArray(excelOptions.appliedPolicyRows) ? excelOptions.appliedPolicyRows : [];
   const workbook = new ExcelJS.Workbook();
   const ws = workbook.addWorksheet('Final Summary', { views: [{ rightToLeft: false }] });
+  ws.pageSetup = {
+    paperSize: 9, // A4
+    orientation: 'portrait',
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 1,
+    horizontalCentered: true,
+    verticalCentered: false,
+    margins: {
+      left: 0.2,
+      right: 0.2,
+      top: 0.2,
+      bottom: 0.2,
+      header: 0.2,
+      footer: 0.2,
+    },
+  };
 
   ws.columns = [
     { width: 4.5 },  // A Sr.No.
@@ -680,7 +699,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
     { width: 10.5 }, // D Rate
     { width: 15.5 }, // E Credit
     { width: 14.5 }, // F Debit
-    { width: 10.5 }, // G Remark
+    { width: 17.2 }, // G Remark (~120px)
   ];
 
   let rowNum = 1;
@@ -880,7 +899,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
     '1.2': 'Net Solar Generation after Wheeling loss = A * (1-7.25%)',
     '1.3': 'Generation Set-Off with Consumption 15-min basis',
     '1.4': 'Surplus Energy after Set-Off ( Banked Energy )',
-    '1.5': `Total Consumption from DISCOM for the Month of ${adjustmentLabel}`,
+    '1.5': `Total Consumption from DISCOM for the Month of ${solarLabel}`,
     '1.6': 'Net Consumption from DISCOM after Generation Set-Off with Consumption 15-min basis',
     '1.7': 'Maxi.30% Eligible - This is indicative only. For exact figures, please reach out to the relevant DISCOM Division office',
     '1.8': 'As per RE Policy2023 Maxi.30% Eligible for Set-Off Banked Energy @ Net Consumption from DISCOM',
@@ -956,7 +975,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
         mainLabel = {
           richText: [
             { text: 'Total Consumption from DISCOM for the Month of ', font: { bold: true, size: 11, color: { argb: '000000' }, name: 'Times New Roman' } },
-            { text: adjustmentLabel, font: { bold: true, size: 11, color: { argb: 'FF0031' }, name: 'Times New Roman' } }
+            { text: solarLabel, font: { bold: true, size: 11, color: { argb: 'FF0031' }, name: 'Times New Roman' } }
           ]
         };
       }
@@ -1176,10 +1195,10 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
       for (let c = 1; c <= 7; c++) {
         const cell = currRow.getCell(c);
         cell.border = {
-          top: { style: 'thin' },
-          left: { style: 'thin' },
-          bottom: { style: 'thin' },
-          right: { style: 'thin' }
+          top: { style: 'thin', color: BORDER_COLOR },
+          left: { style: 'thin', color: BORDER_COLOR },
+          bottom: { style: 'thin', color: BORDER_COLOR },
+          right: { style: 'thin', color: BORDER_COLOR }
         };
       }
     }
@@ -1206,24 +1225,24 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
   // Apply requested Borders
   // 1. Top of Row 2
   ws.getRow(2).eachCell(cell => {
-    cell.border = { ...cell.border, top: { style: 'medium' } };
+    cell.border = { ...cell.border, top: { style: 'medium', color: BORDER_COLOR } };
   });
 
   // 2. Right of Column G (index 7)
   ws.getColumn(7).eachCell(cell => {
-    cell.border = { ...cell.border, right: { style: 'medium' } };
+    cell.border = { ...cell.border, right: { style: 'medium', color: BORDER_COLOR } };
   });
 
   // Ensure empty/spacer rows have right borders
   [`G${emptyRowSec1}`, `G${sec3StartRow - 1}`, `G${footerStartRow - 1}`].forEach(cellAddr => {
     const cell = ws.getCell(cellAddr);
-    cell.border = { ...cell.border, right: { style: 'medium' } };
+    cell.border = { ...cell.border, right: { style: 'medium', color: BORDER_COLOR } };
   });
 
   // 3. Bottom of Section 1 spacer (previously row 20)
   if (ws.getRow(emptyRowSec1)) {
     ws.getRow(emptyRowSec1).eachCell(cell => {
-      cell.border = { ...cell.border, bottom: { style: 'medium' } };
+      cell.border = { ...cell.border, bottom: { style: 'medium', color: BORDER_COLOR } };
     });
   }
 
@@ -1233,9 +1252,61 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
     const row = ws.getRow(rowIdx);
     for (let c = 1; c <= 7; c++) {
       const cell = row.getCell(c);
-      cell.border = { ...cell.border, top: { style: 'medium' } };
+      cell.border = { ...cell.border, top: { style: 'medium', color: BORDER_COLOR } };
     }
   });
+
+  const writePolicyAppendixTable = (rows) => {
+    if (!rows || rows.length === 0) return;
+    const startRow = rowNum;
+    rows.forEach((r, idx) => {
+      const rw = ws.getRow(rowNum);
+      const idxCell = rw.getCell(1);
+      idxCell.value = idx + 1;
+      applyCellStyle(idxCell, { bold: false, italic: true, horizontal: 'center', size: 11, fill: 'E2F0D9' });
+
+      const nameCell = rw.getCell(2);
+      nameCell.value = r?.name || '';
+      applyCellStyle(nameCell, { bold: false, italic: true, horizontal: 'left', size: 11, fill: 'E2F0D9' });
+
+      const valCell = rw.getCell(3);
+      valCell.value = r?.value || '';
+      applyCellStyle(valCell, { bold: false, italic: true, horizontal: 'center', size: 11, fill: 'E2F0D9' });
+
+      const yesCell = rw.getCell(4);
+      yesCell.value = 'Yes';
+      applyCellStyle(yesCell, { bold: false, italic: true, horizontal: 'center', size: 11, fill: 'E2F0D9' });
+
+      for (let i = 5; i <= 7; i++) {
+        applyCellStyle(rw.getCell(i), { fill: 'FFFFFF', italic: true });
+      }
+      rowNum++;
+    });
+
+    const endRow = rowNum - 1;
+    if (endRow >= startRow) {
+      ws.mergeCells(`E${startRow}:G${endRow}`);
+      const noteCell = ws.getCell(`E${startRow}`);
+      noteCell.value = 'Note: The applicable charges are as per the latest GERC Tariff Order and are subject to revision from time to time in accordance with GERC rules and regulations.';
+      noteCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      noteCell.font = { name: 'Times New Roman', size: 11, italic: true };
+      noteCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF' } };
+      noteCell.border = thinBorder;
+
+      for (let r = startRow; r <= endRow; r++) {
+        for (let c = 5; c <= 7; c++) {
+          const cell = ws.getRow(r).getCell(c);
+          cell.border = thinBorder;
+        }
+      }
+    }
+  };
+
+  if (appliedPolicyRows.length > 0) {
+    rowNum += 1; // one empty row after existing sheet
+    writePolicyAppendixTable(appliedPolicyRows);
+  }
+  ws.pageSetup.printArea = `A1:G${Math.max(rowNum - 1, 1)}`;
 
   return workbook;
 }
@@ -1253,6 +1324,7 @@ exports.exportCalculationToExcel = async (req, res) => {
       adjustmentBillingYear,
       calculationTable,
       policy2021Style,
+      appliedPolicyRows,
     } = req.body;
 
     if (!subClientId) {
@@ -1284,6 +1356,7 @@ exports.exportCalculationToExcel = async (req, res) => {
 
     const workbook = buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculationTable || {}, {
       policy2021Style: policy2021Style === true || policy2021Style === 'true',
+      appliedPolicyRows,
     });
 
     const sanitize = (str) => (str || '').replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, ' ').trim();
