@@ -774,7 +774,9 @@ function buildUnitCreditExcelCombined(clientName, solarLabelsJoined, adjustmentL
     cell.value = label;
     applyCellStyle(cell, { bold: true, size: 11, horizontal: 'left', fill: fillHex });
     for (let c = 3; c <= 7; c++) applyCellStyle(r.getCell(c), { fill: fillHex });
-    ws.getRow(rowNum).height = 15;
+    // Match single-month: section header rows are taller; for month policy headers use ~40px
+    const isPolicyHeader = typeof label === 'string' && label.startsWith('As Per RE Solar Policy-2023 -');
+    ws.getRow(rowNum).height = isPolicyHeader ? 40 : 15;
     rowNum++;
   };
 
@@ -1070,17 +1072,81 @@ function buildUnitCreditExcelCombined(clientName, solarLabelsJoined, adjustmentL
     });
   });
 
-  // ---- FINAL consolidated summary (use `finalTable`) ----
-  const final = finalTable?.finalSection || {};
-  writeSectionHeader('', 'Final Summary', 'BDD7EE');
-  const row1 = final.row1 || {};
-  const row2 = final.row2 || {};
-  const row3 = final.row3 || {};
-  const row4 = final.row4 || {};
-  writeRow('1', 'TOTAL AMOUNT', '', '', row1.creditAmount, row1.debitAmount, '', { bold: true });
-  writeRow('2', 'TOTAL AMOUNT - CREDITABLE', '', '', row2.mergedValue, '', row4.status || '', { bold: true });
-  writeRow('3', 'AMOUNT IN BILL - CREDITED IN DISCOM', '', '', row3.mergedValue, '', row4.status || '', { bold: true });
-  writeRow('4', 'DIFF. IN AMOUNT', '', '', row4.mergedValue, '', row4.status || '', { bold: true });
+  // ---- FINAL consolidated summary ----
+  // Match single-month export footer block (merged A-D labels, yellow E/F, merged G status).
+  rowNum++; // one empty row before final (same spirit as single-month)
+  const fs = finalTable?.finalSection;
+  if (fs) {
+    const startFooterRow = rowNum;
+    const r1 = fs.row1 || {};
+    const r2 = fs.row2 || {};
+    const r3 = fs.row3 || {};
+    const r4 = fs.row4 || {};
+    const status = r4.status || '';
+
+    const footerRows = [
+      { label: 'TOTAL AMOUNT', credit: r1.creditAmount, debit: r1.debitAmount, color: '000000', align: 'center' },
+      { label: 'TOTAL AMOUNT - CREDITABLE', credit: r2.mergedValue, color: 'FF0000', align: 'right' },
+      { label: 'AMOUNT IN BILL - CREDITED IN DISCOM', credit: r3.mergedValue, color: 'FF0000', align: 'right' },
+      { label: 'DIFF. IN AMOUNT', credit: r4.mergedValue, color: 'FF0000', align: 'right' }
+    ];
+
+    footerRows.forEach((fr, i) => {
+      const r = ws.getRow(rowNum);
+      r.height = 25;
+
+      ws.mergeCells(`A${rowNum}:D${rowNum}`);
+      const labelCell = r.getCell(1);
+      labelCell.value = fr.label;
+      applyCellStyle(labelCell, { bold: true, horizontal: fr.align, fontColor: fr.color, size: 11 });
+
+      const creditCell = r.getCell(5);
+      const debitCell = r.getCell(6);
+
+      if (i > 0) {
+        ws.mergeCells(`E${rowNum}:F${rowNum}`);
+        creditCell.value = fr.credit != null ? Number(fr.credit) : '';
+      } else {
+        creditCell.value = fr.credit != null ? Number(fr.credit) : '';
+        debitCell.value = fr.debit != null ? Number(fr.debit) : '';
+      }
+
+      const numFmt = '\"₹\" #,##0.00';
+      creditCell.numFmt = numFmt;
+      debitCell.numFmt = numFmt;
+      applyCellStyle(creditCell, { fill: 'FFFF00', bold: true, horizontal: 'center', fontColor: fr.color, size: 11 });
+      applyCellStyle(debitCell, { fill: 'FFFF00', bold: true, horizontal: 'center', fontColor: fr.color, size: 11 });
+
+      rowNum++;
+    });
+
+    const endFooterRow = rowNum - 1;
+    ws.mergeCells(`G${startFooterRow}:G${endFooterRow}`);
+    const statusCell = ws.getRow(startFooterRow).getCell(7);
+    statusCell.value = status;
+
+    let statusFill = '92D050';
+    const normalizedStatus = status ? status.trim() : '';
+    if (normalizedStatus === 'Credit Settled OK' || normalizedStatus === 'Credit Settled 0K') {
+      statusFill = 'C6E0B4';
+    } else if (normalizedStatus === 'FOUND Credit Mismatch') {
+      statusFill = 'F4B084';
+    }
+    applyCellStyle(statusCell, { fill: statusFill, bold: true, horizontal: 'center', vertical: 'middle', wrapText: true, size: 11 });
+
+    for (let r = startFooterRow; r <= endFooterRow; r++) {
+      const currRow = ws.getRow(r);
+      for (let c = 1; c <= 7; c++) {
+        const cell = currRow.getCell(c);
+        cell.border = {
+          top: { style: 'thin', color: BORDER_COLOR },
+          left: { style: 'thin', color: BORDER_COLOR },
+          bottom: { style: 'thin', color: BORDER_COLOR },
+          right: { style: 'thin', color: BORDER_COLOR }
+        };
+      }
+    }
+  }
 
   // Appendix only once
   if (appliedPolicyRows.length > 0) {
