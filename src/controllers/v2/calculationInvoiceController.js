@@ -665,6 +665,467 @@ function buildPolicy2021SurplusFooterText(calculationTable) {
 }
 
 /**
+ * Build Unit Credit Calculation Excel for MULTI month selection in ONE sheet,
+ * matching the UI order:
+ * 1) Section 1 for month-1, month-2, ...
+ * 2) Section 2 for month-1, month-2, ...
+ * 3) Section 3 for month-1, month-2, ...
+ * 4) Final consolidated summary once (from `finalTable`)
+ *
+ * Keeps one-month export unchanged by only using this when monthTables.length > 1.
+ */
+function buildUnitCreditExcelCombined(clientName, solarLabelsJoined, adjustmentLabel, monthTables, finalTable, excelOptions = {}) {
+  const policy2021Style = !!excelOptions.policy2021Style;
+  const appliedPolicyRows = Array.isArray(excelOptions.appliedPolicyRows) ? excelOptions.appliedPolicyRows : [];
+
+  const workbook = excelOptions.workbook || new ExcelJS.Workbook();
+  const sheetName = String(excelOptions.sheetName || 'Final Summary').slice(0, 31);
+  const ws = workbook.addWorksheet(sheetName, { views: [{ rightToLeft: false }] });
+
+  ws.pageSetup = {
+    paperSize: 9, // A4
+    orientation: 'portrait',
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 1,
+    horizontalCentered: true,
+    verticalCentered: false,
+    margins: {
+      left: 0.2,
+      right: 0.2,
+      top: 0.2,
+      bottom: 0.2,
+      header: 0.2,
+      footer: 0.2,
+    },
+  };
+
+  ws.columns = [
+    { width: 4.5 },  // A Sr.No.
+    { width: 38 }, // B Particulars
+    { width: 11.5 }, // C Units
+    { width: 10.5 }, // D Rate
+    { width: 15.5 }, // E Credit
+    { width: 14.5 }, // F Debit
+    { width: 17.2 }, // G Remark
+  ];
+
+  const monthCount = Array.isArray(monthTables) ? monthTables.length : 0;
+  const section1Order = ['1.1', '1.2', '1.3', '1.4', '1.5', '1.6', '1.7', '1.8', '1.9', '1.10'];
+  const section2Order = ['2.1', '2.2', '2.3', '2.4', '2.5', '2.6'];
+  const section2SrMap = { '2.1': 1, '2.2': 2, '2.3': 3, '2.4': 4, '2.5': 5, '2.6': 6 };
+  // Match single-month Excel: Section 1 Sr.No are letters (A/B/C/D/F/G)
+  const srNoMap = { '1.1': 'A', '1.2': 'B', '1.3': 'C', '1.4': 'D', '1.9': 'F', '1.10': 'G' };
+
+  let rowNum = 1;
+  ws.getRow(rowNum).height = 15;
+  rowNum++;
+
+  // Row 2: FINAL SUMMARY SHEET | Client name
+  ws.mergeCells(`A${rowNum}:B${rowNum}`);
+  const r2a = ws.getCell(`A${rowNum}`);
+  r2a.value = 'FINAL SUMMARY SHEET';
+  applyCellStyle(r2a, { bold: true, size: 16, horizontal: 'center', fill: 'FFFF00' });
+  ws.mergeCells(`C${rowNum}:G${rowNum}`);
+  const r2b = ws.getCell(`C${rowNum}`);
+  r2b.value = (clientName || '').toUpperCase();
+  applyCellStyle(r2b, { bold: true, size: 16, horizontal: 'center', fill: 'FFFF00' });
+  // Match single-month height
+  ws.getRow(rowNum).height = 45;
+  rowNum++;
+
+  // Row 3: SOLAR GENRATION MONTH | label(s)
+  ws.mergeCells(`A${rowNum}:B${rowNum}`);
+  ws.getCell(`A${rowNum}`).value = 'SOLAR GENRATION MONTH';
+  applyCellStyle(ws.getCell(`A${rowNum}`), { bold: true, size: 14, horizontal: 'center', fill: 'FFFF00', fontColor: 'FF0000' });
+  ws.mergeCells(`C${rowNum}:G${rowNum}`);
+  ws.getCell(`C${rowNum}`).value = solarLabelsJoined || '';
+  applyCellStyle(ws.getCell(`C${rowNum}`), { bold: true, size: 14, horizontal: 'center', fill: 'FFFF00', fontColor: 'FF0000' });
+  ws.getRow(rowNum).height = 19;
+  rowNum++;
+
+  // Row 4: ADJUSTMENT BILLING | label
+  ws.mergeCells(`A${rowNum}:B${rowNum}`);
+  ws.getCell(`A${rowNum}`).value = 'ADJUSTMENT BILLING';
+  applyCellStyle(ws.getCell(`A${rowNum}`), { bold: true, size: 14, horizontal: 'center', fill: 'FFFF00', fontColor: 'FF0000' });
+  ws.mergeCells(`C${rowNum}:G${rowNum}`);
+  ws.getCell(`C${rowNum}`).value = adjustmentLabel || '';
+  applyCellStyle(ws.getCell(`C${rowNum}`), { bold: true, size: 14, horizontal: 'center', fill: 'FFFF00', fontColor: 'FF0000' });
+  ws.getRow(rowNum).height = 19;
+  rowNum++;
+
+  // Header row
+  const headers = ['Sr. No.', 'Particulars', 'Units in kwh', 'Rate (Rs./kwh)', 'Credit Amount', 'Debit Amount', 'Remark'];
+  const headerRow = ws.getRow(rowNum);
+  headers.forEach((t, idx) => {
+    const cell = headerRow.getCell(idx + 1);
+    cell.value = t;
+    applyCellStyle(cell, { bold: true, size: 11, horizontal: 'center', fill: 'FFC000', border: mediumHeaderBorder });
+  });
+  // Match single-month height
+  ws.getRow(rowNum).height = 30;
+  rowNum++;
+
+  const writeSectionHeader = (srNo, label, fillHex = 'BDD7EE') => {
+    const r = ws.getRow(rowNum);
+    r.getCell(1).value = srNo;
+    applyCellStyle(r.getCell(1), { bold: true, size: 11, horizontal: 'center', fill: fillHex });
+    const cell = r.getCell(2);
+    cell.value = label;
+    applyCellStyle(cell, { bold: true, size: 11, horizontal: 'left', fill: fillHex });
+    for (let c = 3; c <= 7; c++) applyCellStyle(r.getCell(c), { fill: fillHex });
+    ws.getRow(rowNum).height = 15;
+    rowNum++;
+  };
+
+  // Use the SAME row writer rules as single-month export (font/height/italicNumeric/colStyles/numFmt)
+  const writeRow = (srNo, particulars, units, rate, credit, debit, remark, options = {}) => {
+    const r = ws.getRow(rowNum);
+    const cells = [srNo, particulars, formatNum(units), formatNum(rate), formatNum(credit), formatNum(debit), remark || ''];
+    const fill = options.fill || 'FFFFFF';
+    const italic = options.italic || false;
+    const fontColor = options.fontColor;
+    cells.forEach((val, i) => {
+      const cell = r.getCell(i + 1);
+      cell.value = val;
+      const isNumericCol = i >= 2 && i <= 5;
+
+      let horizontal = 'left';
+      if (i === 0 || i === 3 || i === 4 || i === 5) horizontal = 'center';
+      if (i === 2) horizontal = 'right';
+      if (i === 1 && options.horizontal) horizontal = options.horizontal;
+
+      let numFmt = undefined;
+      const particularsStr = typeof particulars === 'string' ? particulars : '';
+      const isPercentageRow = particularsStr.toLowerCase().includes('banked energy in') || particularsStr.toLowerCase().includes('electricity duty');
+
+      if (typeof val === 'number') {
+        if (i === 2) { // Units in kwh
+          numFmt = isPercentageRow ? '0.00\"%\"' : '0';
+        } else if (options.numFmt) {
+          numFmt = options.numFmt;
+        } else if (i === 3) { // Rate
+          numFmt = isPercentageRow ? '0\"%\"' : (options.rateTwoDecimals ? '\"₹\" #,##0.00' : '\"₹\" #,##0.0000');
+        } else if (i === 4 || i === 5) { // Credit / Debit
+          numFmt = options.amountOneDecimal ? '\"₹\" #,##0.0' : '\"₹\" #,##0.00';
+        }
+      }
+
+      let cellBold = options.bold !== undefined ? options.bold : (isNumericCol && val !== '');
+      let cellItalic = italic;
+      let cellFontColor = fontColor;
+      let cellFill = fill;
+
+      if (options.italicNumeric && (i >= 3 && i <= 5) && val !== '') {
+        cellBold = false;
+        cellItalic = (i !== 3); // keep rate non-italic
+      }
+
+      if (options.colStyles && options.colStyles[i]) {
+        const cs = options.colStyles[i];
+        if (cs.fill) cellFill = cs.fill;
+        if (cs.fontColor) cellFontColor = cs.fontColor;
+        if (cs.bold !== undefined) cellBold = cs.bold;
+        if (cs.italic !== undefined) cellItalic = cs.italic;
+        if (cs.numFmt !== undefined) numFmt = cs.numFmt;
+      }
+
+      if (i === 3) cellItalic = false;
+      if (i === 5) {
+        const pStr = typeof particulars === 'string' ? particulars : (particulars && particulars.richText ? particulars.richText.map(rt => rt.text).join('') : '');
+        if (!pStr.includes('Maxi.30% Eligible for Set-Off Banked Energy')) {
+          cellItalic = false;
+        }
+      }
+
+      applyCellStyle(cell, {
+        horizontal,
+        fill: cellFill,
+        size: options.size || 10,
+        bold: cellBold,
+        italic: cellItalic,
+        fontColor: cellFontColor,
+        numFmt,
+        border: options.border,
+      });
+    });
+
+    if (options.height) {
+      ws.getRow(rowNum).height = options.height;
+    } else {
+      const pStrForHeight = typeof particulars === 'string' ? particulars : (particulars && particulars.richText ? particulars.richText.map(rt => rt.text).join('') : '');
+      if (pStrForHeight.length > 110) ws.getRow(rowNum).height = 60;
+      else if (pStrForHeight.length > 75) ws.getRow(rowNum).height = 45;
+      else if (pStrForHeight.length > 40) ws.getRow(rowNum).height = 30;
+      else ws.getRow(rowNum).height = 15;
+    }
+    rowNum++;
+  };
+
+  // ---- SECTION 1 for each month ----
+  monthTables.forEach((mt, idx) => {
+    const monthLabel = mt?.label || '';
+    const t = mt?.calculationTable || {};
+    const sectionNum = idx + 1;
+    writeSectionHeader(sectionNum, `As Per RE Solar Policy-2023 - ${monthLabel}`, 'BDD7EE');
+
+    const section1FallbackLabels = {
+      '1.1': 'Gross Solar Generation as per SLDC- ( Policy-2023)',
+      '1.2': 'Net Solar Generation after Wheeling loss = A * (1-7.25%)',
+      '1.3': 'Generation Set-Off with Consumption 15-min basis',
+      '1.4': 'Surplus Energy after Set-Off ( Banked Energy )',
+      '1.5': `Total Consumption from DISCOM for the Month of ${monthLabel}`,
+      '1.6': 'Net Consumption from DISCOM after Generation Set-Off with Consumption 15-min basis',
+      '1.7': 'Maxi.30% Eligible - This is indicative only. For exact figures, please reach out to the relevant DISCOM Division office',
+      '1.8': 'As per RE Policy2023 Maxi.30% Eligible for Set-Off Banked Energy @ Net Consumption from DISCOM',
+      '1.9': 'TOTAL Set-Off',
+      '1.10': policy2021Style
+        ? 'Surplus Energy after Set-Off ( Inadvertent Energy ) SELL Units to DISCOM'
+        : 'Inadvertent Banked Energy = B - F (- Drawal) if Any ( LAPSED )',
+    };
+
+    section1Order.forEach((key) => {
+      const row = t?.section1?.[key];
+      if (!row) return;
+      const sr = srNoMap[key] || '';
+
+      let mainLabel = (row.particulars && row.particulars !== key) ? row.particulars : (section1FallbackLabels[key] || key);
+      const mainOpts = { bold: true, italicNumeric: true };
+
+      if (key === '1.1') {
+        const baseTxt = typeof mainLabel === 'string' ? mainLabel : section1FallbackLabels['1.1'];
+        if (baseTxt.includes('Policy-2023)')) {
+          const parts = baseTxt.split('Policy-2023)');
+          mainLabel = {
+            richText: [
+              { text: parts[0], font: { bold: true, size: 11, name: 'Times New Roman' } },
+              { text: 'Policy-2023)', font: { bold: false, italic: true, size: 11, name: 'Times New Roman' } },
+              { text: parts[1] || '', font: { bold: true, size: 11, name: 'Times New Roman' } }
+            ]
+          };
+        }
+      }
+
+      if (key === '1.2') {
+        const baseTxt = typeof mainLabel === 'string' ? mainLabel : section1FallbackLabels['1.2'];
+        if (baseTxt.includes('A * (1-7.25%)')) {
+          const parts = baseTxt.split('A * (1-7.25%)');
+          mainLabel = {
+            richText: [
+              { text: parts[0], font: { bold: true, size: 11, name: 'Times New Roman' } },
+              { text: 'A * (1-7.25%)', font: { bold: false, italic: true, size: 11, name: 'Times New Roman' } },
+              { text: parts[1] || '', font: { bold: true, size: 11, name: 'Times New Roman' } }
+            ]
+          };
+        }
+      }
+
+      if (key === '1.4') {
+        const baseTxt = typeof mainLabel === 'string' ? mainLabel : section1FallbackLabels['1.4'];
+        if (baseTxt.includes('( Banked Energy )')) {
+          const parts = baseTxt.split('( Banked Energy )');
+          mainLabel = {
+            richText: [
+              { text: parts[0], font: { bold: true, size: 11, name: 'Times New Roman' } },
+              { text: '( Banked Energy )', font: { bold: false, italic: true, size: 11, name: 'Times New Roman' } },
+              { text: parts[1] || '', font: { bold: true, size: 11, name: 'Times New Roman' } }
+            ]
+          };
+        }
+      }
+
+      if (key === '1.5') {
+        mainLabel = {
+          richText: [
+            { text: 'Total Consumption from DISCOM for the Month of ', font: { bold: true, size: 11, color: { argb: '000000' }, name: 'Times New Roman' } },
+            { text: monthLabel, font: { bold: true, size: 11, color: { argb: 'FF0031' }, name: 'Times New Roman' } }
+          ]
+        };
+      }
+
+      if (key === '1.7') {
+        mainLabel = {
+          richText: [
+            { text: 'Maxi.30% Eligible', font: { italic: true, bold: true, size: 10, color: { argb: 'FF0000' }, name: 'Times New Roman' } },
+            { text: ' - This is indicative only. For exact figures, please reach out to the relevant DISCOM Division office', font: { italic: true, size: 10, color: { argb: '000000' }, name: 'Times New Roman' } }
+          ]
+        };
+      }
+
+      if (key === '1.10' && !policy2021Style) {
+        mainLabel = {
+          richText: [
+            { text: 'Inadvertent Banked Energy = B - F (- Drawal) if Any ( ', font: { bold: true, size: 10, color: { argb: '000000' }, name: 'Times New Roman' } },
+            { text: 'LAPSED', font: { bold: true, size: 10, color: { argb: 'FF0000' }, name: 'Times New Roman' } },
+            { text: ' )', font: { bold: true, size: 10, color: { argb: '000000' }, name: 'Times New Roman' } }
+          ]
+        };
+      }
+
+      if (['1.5', '1.6', '1.7'].includes(key)) {
+        mainOpts.fill = 'FCE4D6';
+      }
+      if (key === '1.5') mainOpts.border = mediumTopBorder;
+      if (key === '1.7') mainOpts.border = mediumBottomBorder;
+      if (['1.6', '1.7', '1.8', '1.9'].includes(key)) {
+        mainOpts.numFmt = '\"₹\" #,##0.00';
+      }
+      if (['1.6', '1.7', '1.8'].includes(key)) {
+        mainOpts.bold = false;
+        mainOpts.italic = true;
+        mainOpts.horizontal = 'right';
+        if (['1.6', '1.7'].includes(key)) {
+          mainOpts.colStyles = { 1: { bold: true, italic: false } };
+        } else if (key === '1.8') {
+          mainOpts.colStyles = { 1: { italic: false } };
+        }
+      }
+      if (key === '1.9') {
+        mainOpts.height = 30;
+      }
+      if (key === '1.10') {
+        mainOpts.colStyles = { 1: { fill: 'FFC7CE', fontColor: 'AD0006', bold: true, italic: false } };
+      }
+
+      let rowRemark = row.remark;
+      if (!policy2021Style && ['1.5', '1.6', '1.7'].includes(key) && !hasValueForExcel(row.unitsInKwh)) {
+        rowRemark = 'Data Not Available';
+      }
+
+      writeRow(sr, mainLabel, row.unitsInKwh, row.rate, row.creditAmount, row.debitAmount, rowRemark, mainOpts);
+
+      // Sub-rows (drawlFromDiscom, bankedEnergyPercent, electricityDuty)
+      const sub = row.subRows || {};
+      if (sub.drawlFromDiscom) {
+        writeRow('', 'Drawl from DISCOM by Solar Generator', sub.drawlFromDiscom.unitsInKwh, sub.drawlFromDiscom.rate, sub.drawlFromDiscom.creditAmount, sub.drawlFromDiscom.debitAmount, sub.drawlFromDiscom.remark, { italic: false, bold: false, horizontal: 'right', colStyles: { 0: { italic: true } } });
+      }
+      if (sub.bankedEnergyPercent) {
+        writeRow('', 'Banked Energy in %', sub.bankedEnergyPercent.unitsInKwh, sub.bankedEnergyPercent.rate, sub.bankedEnergyPercent.creditAmount, sub.bankedEnergyPercent.debitAmount, sub.bankedEnergyPercent.remark, { italic: false, bold: false, horizontal: 'right', colStyles: { 0: { italic: true }, 1: { bold: true } } });
+      }
+      if (row.showElectricityDuty && sub.electricityDuty) {
+        writeRow('', 'Electricity Duty', sub.electricityDuty.unitsInKwh, sub.electricityDuty.rate, sub.electricityDuty.creditAmount, sub.electricityDuty.debitAmount, sub.electricityDuty.remark, { italic: true, bold: false, horizontal: 'right', colStyles: { 0: { italic: true } } });
+      }
+    });
+  });
+
+  const emptyRowSec1 = rowNum;
+  rowNum++;
+
+  // ---- SECTION 2 for each month ----
+  monthTables.forEach((mt, idx) => {
+    const monthLabel = mt?.label || '';
+    const t = mt?.calculationTable || {};
+    const sectionNum = monthCount + idx + 1;
+    writeSectionHeader(sectionNum, `Other Credit (if any) - ${monthLabel}`, 'BDD7EE');
+
+    section2Order.forEach((key) => {
+      const row = t?.section2?.[key];
+      if (!row) return;
+      if (['2.3', '2.4', '2.5', '2.6'].includes(key) && !rowHasAnyCFData(row)) return;
+      // Match single-month Excel: Section 2 Sr.No are 1..6 (no prefix)
+      const sr = String(section2SrMap[key] || '');
+      const labelMap = {
+        '2.1': 'TOD Solar Concession (11:00 to 15:00 Hrs / kwh )',
+        '2.2': 'TCS / TDS',
+        '2.3': 'Roof Top Solar',
+        '2.4': 'Roof Top Solar-SELL Unit',
+        '2.5': 'SurPlus Energy ( if Any )',
+        '2.6': 'Wind Farm',
+      };
+      writeRow(sr, row.particulars || labelMap[key] || key, row.unitsInKwh, row.rate, row.creditAmount, row.debitAmount, row.remark, {
+        bold: false,
+        italicNumeric: true,
+        rateTwoDecimals: true,
+        colStyles: { 1: { bold: true, italic: false }, 3: { italic: key === '2.1', numFmt: '\"₹\" #,##0.0' }, 4: { numFmt: '\"₹\" #,##0.0' } },
+      });
+
+      const sub = row.subRows || {};
+      if (row.showElectricityDuty && sub.electricityDuty) {
+        writeRow('', 'Electricity Duty', sub.electricityDuty.unitsInKwh, sub.electricityDuty.rate, sub.electricityDuty.creditAmount, sub.electricityDuty.debitAmount, sub.electricityDuty.remark, {
+          italic: true,
+          bold: false,
+          horizontal: 'right',
+          rateTwoDecimals: true,
+          colStyles: { 3: { italic: false, numFmt: '\"₹\" #,##0.0' }, 4: { numFmt: '\"₹\" #,##0.0' } },
+        });
+      }
+    });
+  });
+
+  const sec3StartRow = rowNum;
+
+  // ---- SECTION 3 for each month ----
+  monthTables.forEach((mt, idx) => {
+    const monthLabel = mt?.label || '';
+    const t = mt?.calculationTable || {};
+    const sectionNum = monthCount * 2 + idx + 1;
+    writeSectionHeader(sectionNum, `Other - ${monthLabel}`, 'BDD7EE');
+
+    const rows = Array.isArray(t.section3) ? t.section3 : [];
+    rows.forEach((r) => {
+      writeRow(r.id || '', r.particulars || '', r.unitsInKwh, r.rate, r.creditAmount, r.debitAmount, r.remark, { bold: false });
+      if (r.showElectricityDuty && r.subRows?.electricityDuty) {
+        writeRow(`${r.id}.1`, 'Electricity Duty', r.subRows.electricityDuty.unitsInKwh, r.subRows.electricityDuty.rate, r.subRows.electricityDuty.creditAmount, r.subRows.electricityDuty.debitAmount, r.subRows.electricityDuty.remark, {});
+      }
+    });
+  });
+
+  // ---- FINAL consolidated summary (use `finalTable`) ----
+  const final = finalTable?.finalSection || {};
+  writeSectionHeader('', 'Final Summary', 'BDD7EE');
+  const row1 = final.row1 || {};
+  const row2 = final.row2 || {};
+  const row3 = final.row3 || {};
+  const row4 = final.row4 || {};
+  writeRow('1', 'TOTAL AMOUNT', '', '', row1.creditAmount, row1.debitAmount, '', { bold: true });
+  writeRow('2', 'TOTAL AMOUNT - CREDITABLE', '', '', row2.mergedValue, '', row4.status || '', { bold: true });
+  writeRow('3', 'AMOUNT IN BILL - CREDITED IN DISCOM', '', '', row3.mergedValue, '', row4.status || '', { bold: true });
+  writeRow('4', 'DIFF. IN AMOUNT', '', '', row4.mergedValue, '', row4.status || '', { bold: true });
+
+  // Appendix only once
+  if (appliedPolicyRows.length > 0) {
+    rowNum += 1;
+    const startRow = rowNum;
+    appliedPolicyRows.forEach((r, idx) => {
+      const rw = ws.getRow(rowNum);
+      rw.getCell(1).value = idx + 1;
+      applyCellStyle(rw.getCell(1), { bold: false, italic: true, horizontal: 'center', size: 11, fill: 'E2F0D9' });
+      rw.getCell(2).value = r?.name || '';
+      applyCellStyle(rw.getCell(2), { bold: false, italic: true, horizontal: 'left', size: 11, fill: 'E2F0D9' });
+      rw.getCell(3).value = r?.value || '';
+      applyCellStyle(rw.getCell(3), { bold: false, italic: true, horizontal: 'center', size: 11, fill: 'E2F0D9' });
+      rw.getCell(4).value = 'Yes';
+      applyCellStyle(rw.getCell(4), { bold: false, italic: true, horizontal: 'center', size: 11, fill: 'E2F0D9' });
+      for (let i = 5; i <= 7; i++) applyCellStyle(rw.getCell(i), { fill: 'FFFFFF', italic: true });
+      rowNum++;
+    });
+    const endRow = rowNum - 1;
+    if (endRow >= startRow) {
+      ws.mergeCells(`E${startRow}:G${endRow}`);
+      const noteCell = ws.getCell(`E${startRow}`);
+      noteCell.value = 'Note: The applicable charges are as per the latest GERC Tariff Order and are subject to revision from time to time in accordance with GERC rules and regulations.';
+      noteCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      noteCell.font = { name: 'Times New Roman', size: 11, italic: true };
+      noteCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF' } };
+      noteCell.border = thinBorder;
+      for (let r = startRow; r <= endRow; r++) {
+        for (let c = 5; c <= 7; c++) ws.getRow(r).getCell(c).border = thinBorder;
+      }
+    }
+  }
+
+  // Dark borders everywhere (same as single sheet fix)
+  const lastRowForBorders = Math.max(rowNum - 1, 1);
+  for (let r = 1; r <= lastRowForBorders; r++) {
+    const rw = ws.getRow(r);
+    for (let c = 1; c <= 7; c++) rw.getCell(c).border = thinBorder;
+  }
+
+  ws.pageSetup.printArea = `A1:G${lastRowForBorders}`;
+  return workbook;
+}
+
+/**
  * Build Unit Credit Calculation Excel and return workbook.
  * Expects payload with: subClientId, solarGenerationMonths, adjustmentBillingMonth, adjustmentBillingYear, calculationTable.
  * @param {{ policy2021Style?: boolean }} [excelOptions]
@@ -672,8 +1133,9 @@ function buildPolicy2021SurplusFooterText(calculationTable) {
 function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculationTable, excelOptions = {}) {
   const policy2021Style = !!excelOptions.policy2021Style;
   const appliedPolicyRows = Array.isArray(excelOptions.appliedPolicyRows) ? excelOptions.appliedPolicyRows : [];
-  const workbook = new ExcelJS.Workbook();
-  const ws = workbook.addWorksheet('Final Summary', { views: [{ rightToLeft: false }] });
+  const workbook = excelOptions.workbook || new ExcelJS.Workbook();
+  const sheetName = String(excelOptions.sheetName || 'Final Summary').slice(0, 31);
+  const ws = workbook.addWorksheet(sheetName, { views: [{ rightToLeft: false }] });
   ws.pageSetup = {
     paperSize: 9, // A4
     orientation: 'portrait',
@@ -758,7 +1220,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
   const section1Order = policy2021Style
     ? ['1.1', '1.2', '1.3', '1.4', '1.9', '1.10']
     : ['1.1', '1.2', '1.3', '1.4', '1.5', '1.6', '1.7', '1.8', '1.9', '1.10'];
-  const section2Order = ['2.1', '2.2', '2.3', '2.4', '2.5'];
+  const section2Order = ['2.1', '2.2', '2.3', '2.4', '2.5', '2.6'];
 
   function writeRow(srNo, particulars, units, rate, credit, debit, remark, options = {}) {
     const r = ws.getRow(rowNum);
@@ -892,6 +1354,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
     '2.3': 3,
     '2.4': 4,
     '2.5': 5,
+    '2.6': 6,
   };
 
   const section1FallbackLabels = {
@@ -906,7 +1369,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
     '1.9': 'TOTAL Set-Off',
     '1.10': policy2021Style
       ? 'Surplus Energy after Set-Off ( Inadvertent Energy ) SELL Units to DISCOM'
-      : 'Inadvertent Banked Energy = B - F if Any ( LAPSED )',
+      : 'Inadvertent Banked Energy = B - F (- Drawal) if Any ( LAPSED )',
   };
 
   const section2FallbackLabels = {
@@ -914,7 +1377,8 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
     '2.2': 'TCS / TDS',
     '2.3': 'Roof Top Solar',
     '2.4': 'Roof Top Solar-SELL Unit',
-    '2.5': 'Wind Farm',
+    '2.5': 'SurPlus Energy ( if Any )',
+    '2.6': 'Wind Farm',
 
   };
 
@@ -992,7 +1456,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
       if (key === '1.10' && !policy2021Style) {
         mainLabel = {
           richText: [
-            { text: 'Inadvertent Banked Energy = B - F if Any ( ', font: { bold: true, size: 10, color: { argb: '000000' }, name: 'Times New Roman' } },
+            { text: 'Inadvertent Banked Energy = B - F (- Drawal) if Any ( ', font: { bold: true, size: 10, color: { argb: '000000' }, name: 'Times New Roman' } },
             { text: 'LAPSED', font: { bold: true, size: 10, color: { argb: 'FF0000' }, name: 'Times New Roman' } },
             { text: ' )', font: { bold: true, size: 10, color: { argb: '000000' }, name: 'Times New Roman' } }
           ]
@@ -1074,7 +1538,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
     for (const key of section2Order) {
       const row = calculationTable.section2[key];
       if (!row) continue;
-      if (['2.3', '2.4', '2.5'].includes(key) && !rowHasAnyCFData(row)) continue;
+      if (['2.3', '2.4', '2.5', '2.6'].includes(key) && !rowHasAnyCFData(row)) continue;
       const mainSr = section2SrMap[key] || '';
       const mainLabel = (row.particulars && row.particulars !== key) ? row.particulars : (section2FallbackLabels[key] || key);
       writeRow(mainSr, mainLabel, row.unitsInKwh, row.rate, row.creditAmount, row.debitAmount, row.remark, { bold: false, italicNumeric: true, rateTwoDecimals: true, colStyles: { 2: { bold: true, italic: false }, 4: { italic: key === '2.1', numFmt: '"₹" #,##0.0' }, 5: { numFmt: '"₹" #,##0.0' } } });
@@ -1306,6 +1770,16 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
     rowNum += 1; // one empty row after existing sheet
     writePolicyAppendixTable(appliedPolicyRows);
   }
+
+  // Ensure dark borders for the full visible table area (inner + outer).
+  // Some cells (merged/spacers) can miss borders depending on Excel viewer.
+  const lastRowForBorders = Math.max(rowNum - 1, 1);
+  for (let r = 1; r <= lastRowForBorders; r++) {
+    const rw = ws.getRow(r);
+    for (let c = 1; c <= 7; c++) {
+      rw.getCell(c).border = thinBorder;
+    }
+  }
   ws.pageSetup.printArea = `A1:G${Math.max(rowNum - 1, 1)}`;
 
   return workbook;
@@ -1317,15 +1791,19 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
  */
 exports.exportCalculationToExcel = async (req, res) => {
   try {
+    // Some clients send wrapped payloads (e.g. { invoice: {...} }).
+    // Normalize so multi-month exports (monthTables) always work.
+    const body = (req.body && req.body.invoice) ? req.body.invoice : req.body;
     const {
       subClientId,
       solarGenerationMonths,
+      monthTables,
       adjustmentBillingMonth,
       adjustmentBillingYear,
       calculationTable,
       policy2021Style,
       appliedPolicyRows,
-    } = req.body;
+    } = body || {};
 
     if (!subClientId) {
       return res.status(400).json({ message: 'Sub client ID is required' });
@@ -1354,10 +1832,77 @@ exports.exportCalculationToExcel = async (req, res) => {
     const adjYear = adjustmentBillingYear != null ? Number(adjustmentBillingYear) : 0;
     const adjustmentLabel = adjMonth && adjYear ? `${monthNames[adjMonth - 1] || ''} ${adjYear}` : '';
 
-    const workbook = buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculationTable || {}, {
-      policy2021Style: policy2021Style === true || policy2021Style === 'true',
-      appliedPolicyRows,
-    });
+    const normalizedPolicy2021 = policy2021Style === true || policy2021Style === 'true';
+
+    // If user selected multiple solar months but the request didn't include `monthTables`,
+    // fetch the saved invoice from MongoDB and export from it (source of truth).
+    let effectiveMonthTables = Array.isArray(monthTables) ? monthTables : null;
+    const selectedSolar = Array.isArray(solarGenerationMonths) ? solarGenerationMonths : [];
+    if ((!effectiveMonthTables || effectiveMonthTables.length < 2) && selectedSolar.length >= 2 && adjMonth && adjYear) {
+      try {
+        const wantedKeys = selectedSolar
+          .map((m) => `${Number(m.month) || 0}-${Number(m.year) || 0}`)
+          .filter((k) => !k.startsWith('0-'))
+          .sort()
+          .join(',');
+
+        const candidates = await CalculationInvoice.find({
+          subClientId: new mongoose.Types.ObjectId(subClientId),
+          adjustmentBillingMonth: adjMonth,
+          adjustmentBillingYear: adjYear,
+          solarGenerationMonths: { $exists: true, $ne: [] },
+        })
+          .sort({ updatedAt: -1 })
+          .limit(25)
+          .lean();
+
+        const match = (candidates || []).find((inv) => {
+          const invKeys = Array.isArray(inv?.solarGenerationMonths) && inv.solarGenerationMonths.length > 0
+            ? inv.solarGenerationMonths.map((m) => `${m.month}-${m.year}`).sort().join(',')
+            : '';
+          return invKeys === wantedKeys;
+        });
+
+        if (match && Array.isArray(match.solarGenerationMonths) && match.solarGenerationMonths.length > 0) {
+          effectiveMonthTables = match.solarGenerationMonths.map((m) => ({
+            month: m.month,
+            year: m.year,
+            calculationTable: m.calculationTable || {},
+          }));
+        }
+      } catch (e) {
+        // fall back to request payload export
+      }
+    }
+
+    // Multi-month export: create one worksheet per selected solar month.
+    // Frontend sends `monthTables[]` with each month’s `calculationTable`.
+    let workbook;
+    if (Array.isArray(effectiveMonthTables) && effectiveMonthTables.length > 1) {
+      const normalizedMonthTables = effectiveMonthTables.map((mt) => {
+        const mo = mt?.month != null ? Number(mt.month) : 0;
+        const yr = mt?.year != null ? Number(mt.year) : 0;
+        const label = `${monthNames[mo - 1] || ''} ${yr || ''}`.trim();
+        return { month: mo, year: yr, label, calculationTable: mt?.calculationTable || {} };
+      });
+      const joined = normalizedMonthTables.map((m) => m.label).filter(Boolean).join(', ');
+      workbook = buildUnitCreditExcelCombined(
+        clientName,
+        joined,
+        adjustmentLabel,
+        normalizedMonthTables,
+        calculationTable || {},
+        {
+          policy2021Style: normalizedPolicy2021,
+          appliedPolicyRows,
+        }
+      );
+    } else {
+      workbook = buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculationTable || {}, {
+        policy2021Style: normalizedPolicy2021,
+        appliedPolicyRows,
+      });
+    }
 
     const sanitize = (str) => (str || '').replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, ' ').trim();
     const fileName = `Unit Credit Calculation - ${sanitize(clientName) || 'Client'} ${sanitize(solarLabel) || 'Report'}.xlsx`;
