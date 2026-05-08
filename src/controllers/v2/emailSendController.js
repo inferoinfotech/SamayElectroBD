@@ -97,31 +97,45 @@ const createZipFile = async (filePaths, outputPath) => {
 };
 
 // Helper function: Extract Meter Number from filename
+// - CSV/Excel typically: "Load Survey - <METER> - ...."
+// - CDF/DLM: meter number is first 8 characters of filename
 const extractMeterNumber = (fileName) => {
-    const match = fileName.match(/Load Survey - (\w+)/);
+    const ext = path.extname(fileName || '').toLowerCase();
+
+    if (ext === '.cdf' || ext === '.dlm') {
+        const base = path.basename(fileName);
+        const first8 = base.slice(0, 8).trim();
+        const cleaned = first8.replace(/[^A-Za-z0-9]/g, '');
+        return cleaned.length >= 6 ? cleaned : null;
+    }
+
+    const match = (fileName || '').match(/Load Survey - (\w+)/);
     return match ? match[1].trim() : null;
 };
 
 // Helper function: Find client by meter number
 const findClientByMeterNumber = async (meterNumber) => {
+    const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const normalized = String(meterNumber || '').trim();
+    const meterRegex = new RegExp(`^\\s*${escapeRegex(normalized)}\\s*$`, 'i');
     let client, meterType, clientType;
 
-    if (meterNumber.startsWith('GJ')) {
-        client = await MainClient.findOne({ 'abtMainMeter.meterNumber': meterNumber });
+    if (normalized.toUpperCase().startsWith('GJ')) {
+        client = await MainClient.findOne({ 'abtMainMeter.meterNumber': meterRegex });
         meterType = client ? 'abtMainMeter' : null;
 
         if (!client) {
-            client = await MainClient.findOne({ 'abtCheckMeter.meterNumber': meterNumber });
+            client = await MainClient.findOne({ 'abtCheckMeter.meterNumber': meterRegex });
             meterType = client ? 'abtCheckMeter' : null;
         }
 
         clientType = 'MainClient';
-    } else if (meterNumber.startsWith('DG')) {
-        client = await SubClient.findOne({ 'abtMainMeter.meterNumber': meterNumber });
+    } else if (normalized.toUpperCase().startsWith('DG')) {
+        client = await SubClient.findOne({ 'abtMainMeter.meterNumber': meterRegex });
         meterType = client ? 'abtMainMeter' : null;
 
         if (!client) {
-            client = await SubClient.findOne({ 'abtCheckMeter.meterNumber': meterNumber });
+            client = await SubClient.findOne({ 'abtCheckMeter.meterNumber': meterRegex });
             meterType = client ? 'abtCheckMeter' : null;
         }
 
@@ -166,8 +180,11 @@ exports.processEmailFiles = async (req, res) => {
             const filePath = path.resolve(file.path);
             
             try {
-                // Re-encode CSV to UTF-8
-                await reencodeCSVtoUTF8(filePath);
+                // Re-encode CSV to UTF-8 (only for CSV)
+                const ext = path.extname(file.originalname || '').toLowerCase();
+                if (ext === '.csv') {
+                    await reencodeCSVtoUTF8(filePath);
+                }
 
                 // Extract meter number from filename
                 const meterNumber = extractMeterNumber(file.originalname);
@@ -198,12 +215,19 @@ exports.processEmailFiles = async (req, res) => {
                 // Log for debugging
                 logger.info(`Found client: ${client.name} (ID: ${client._id}) for meter: ${meterNumber}`);
 
+                const fileExt = path.extname(file.originalname || '').toLowerCase();
+                const isCdfOrDlm = fileExt === '.cdf' || fileExt === '.dlm';
+
                 // Check if recipient already exists in the list
                 const existingRecipient = recipients.find(r => r.meterNumber === meterNumber);
                 
                 if (existingRecipient) {
                     // Add file to existing recipient
-                    existingRecipient.csvCheck = true;
+                    if (isCdfOrDlm) {
+                        existingRecipient.cdfCheck = true; // cdfCheck = "CDF/DLM"
+                    } else {
+                        existingRecipient.csvCheck = true;
+                    }
                 } else {
                     // Add new recipient (no email validation needed)
                     recipients.push({
@@ -212,8 +236,8 @@ exports.processEmailFiles = async (req, res) => {
                         meterNumber: meterNumber,
                         email: client.email || 'No email',
                         consumerNo: client.consumerNo || 'N/A',
-                        csvCheck: true,
-                        cdfCheck: false,
+                        csvCheck: isCdfOrDlm ? false : true,
+                        cdfCheck: isCdfOrDlm ? true : false, // cdfCheck = "CDF/DLM"
                         mailSent: false
                     });
                 }
@@ -1278,6 +1302,164 @@ exports.downloadGeneralEmailFile = async (req, res) => {
         logger.info(`File downloaded: ${file.originalName} for client ${clientId}`);
     } catch (error) {
         logger.error(`Error downloading file: ${error.message}`);
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// Get files for a specific client for a weekly/monthly period
+exports.getClientFilesForPeriod = async (req, res) => {
+    try {
+        const { clientId, sendType, year, month, week } = req.query;
+
+        if (!clientId || !sendType || !year) {
+            return res.status(400).json({ message: 'clientId, sendType, and year are required' });
+        }
+
+        if (!['weekly', 'monthly'].includes(sendType)) {
+            return res.status(400).json({ message: 'sendType must be weekly or monthly' });
+        }
+
+        if (sendType === 'weekly' && !week) {
+            return res.status(400).json({ message: 'week is required for weekly' });
+        }
+
+        if (sendType === 'monthly' && !month) {
+            return res.status(400).json({ message: 'month is required for monthly' });
+        }
+
+        const client = await MainClient.findById(clientId).lean();
+        if (!client) {
+            return res.status(404).json({ message: 'Client not found' });
+        }
+
+        const meterNumbers = new Set(
+            [
+                client?.abtMainMeter?.meterNumber,
+                client?.abtCheckMeter?.meterNumber
+            ].filter(Boolean)
+        );
+
+        const query = {
+            sendType,
+            'period.year': parseInt(year)
+        };
+        if (sendType === 'weekly') query['period.week'] = parseInt(week);
+        if (sendType === 'monthly') query['period.month'] = parseInt(month);
+
+        const batch = await EmailSend.findOne(query).sort({ createdAt: -1 }).lean();
+        if (!batch) {
+            return res.status(200).json({ batch: null, clientId, files: [], count: 0 });
+        }
+
+        const files = (batch.uploadedFiles || []).filter(f => {
+            if (!f) return false;
+            if (f.meterNumber && meterNumbers.has(f.meterNumber)) return true;
+            // fallback: try infer from originalName prefix for cdf/dlm
+            const ext = path.extname(f.originalName || '').toLowerCase();
+            if (ext === '.cdf' || ext === '.dlm') {
+                const first8 = path.basename(f.originalName || '').slice(0, 8).trim().replace(/[^A-Za-z0-9]/g, '');
+                return first8 && meterNumbers.has(first8);
+            }
+            return false;
+        });
+
+        res.status(200).json({
+            batchId: batch._id,
+            clientId,
+            sendType,
+            period: batch.period,
+            files,
+            count: files.length
+        });
+    } catch (error) {
+        logger.error(`Error getting client files for period: ${error.message}`);
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// Download a single file (proxy from Cloudinary) for client period view
+exports.downloadClientFileForPeriod = async (req, res) => {
+    try {
+        const { batchId, fileId } = req.query;
+
+        if (!batchId || !fileId) {
+            return res.status(400).json({ message: 'batchId and fileId are required' });
+        }
+        if (!mongoose.Types.ObjectId.isValid(batchId)) {
+            return res.status(400).json({ message: 'Invalid batch ID format' });
+        }
+
+        const batch = await EmailSend.findById(batchId);
+        if (!batch) {
+            return res.status(404).json({ message: 'Batch not found' });
+        }
+
+        const file = batch.uploadedFiles.id(fileId);
+        if (!file) {
+            return res.status(404).json({ message: 'File not found' });
+        }
+        if (!file.cloudinaryUrl) {
+            return res.status(404).json({ message: 'File URL not available (old batch data)' });
+        }
+
+        const https = require('https');
+        const filename = file.originalName || file.filename || 'download';
+
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Content-Type', file.mimetype || 'application/octet-stream');
+
+        https.get(file.cloudinaryUrl, (response) => {
+            if (response.statusCode && response.statusCode >= 400) {
+                return res.status(502).json({ message: `Failed to download file (status ${response.statusCode})` });
+            }
+            response.pipe(res);
+        }).on('error', (err) => {
+            logger.error(`Cloudinary proxy download error: ${err.message}`);
+            res.status(500).json({ message: 'Download failed' });
+        });
+    } catch (error) {
+        logger.error(`Error downloading client file for period: ${error.message}`);
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// Delete a single file from a batch and Cloudinary
+exports.deleteClientFileForPeriod = async (req, res) => {
+    try {
+        const { batchId, fileId } = req.body;
+
+        if (!batchId || !fileId) {
+            return res.status(400).json({ message: 'batchId and fileId are required' });
+        }
+        if (!mongoose.Types.ObjectId.isValid(batchId)) {
+            return res.status(400).json({ message: 'Invalid batch ID format' });
+        }
+
+        const batch = await EmailSend.findById(batchId);
+        if (!batch) {
+            return res.status(404).json({ message: 'Batch not found' });
+        }
+
+        const file = batch.uploadedFiles.id(fileId);
+        if (!file) {
+            return res.status(404).json({ message: 'File not found' });
+        }
+
+        // Delete from Cloudinary if possible
+        if (file.cloudinaryPublicId) {
+            try {
+                await deleteFromCloudinary(file.cloudinaryPublicId);
+            } catch (cloudErr) {
+                logger.error(`Cloudinary delete failed: ${cloudErr.message}`);
+            }
+        }
+
+        file.deleteOne();
+        await batch.save();
+
+        res.status(200).json({ message: 'File deleted successfully' });
+    } catch (error) {
+        logger.error(`Error deleting client file for period: ${error.message}`);
         res.status(500).json({ message: error.message });
     }
 };

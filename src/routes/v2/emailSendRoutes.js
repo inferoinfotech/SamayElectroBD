@@ -21,16 +21,17 @@ const upload = multer({
     storage: storage,
     limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
     fileFilter: (req, file, cb) => {
-        const allowedTypes = /csv|cdf|xlsx|xls/;
+        const allowedTypes = /csv|cdf|dlm|xlsx|xls/;
         const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
         const mimetype = allowedTypes.test(file.mimetype) || 
                         file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-                        file.mimetype === 'application/vnd.ms-excel';
+                        file.mimetype === 'application/vnd.ms-excel' ||
+                        file.mimetype === 'application/octet-stream'; // common for .cdf/.dlm
 
         if (mimetype && extname) {
             return cb(null, true);
         } else {
-            cb(new Error('Only CSV, CDF, and Excel files are allowed for weekly/monthly emails'));
+            cb(new Error('Only CSV, CDF/DLM, and Excel files are allowed for weekly/monthly emails'));
         }
     }
 });
@@ -74,6 +75,11 @@ router.post('/batch/:batchId/send-all', emailSendController.sendEmailToAll);
 
 // Delete email batch
 router.delete('/batch/:batchId', emailSendController.deleteEmailBatch);
+
+// View/download/delete files for a client in a specific weekly/monthly period
+router.get('/client-files', emailSendController.getClientFilesForPeriod);
+router.get('/client-files/download', emailSendController.downloadClientFileForPeriod);
+router.delete('/client-files/delete', emailSendController.deleteClientFileForPeriod);
 
 // Send general email (for General Monthly Email tab)
 router.post('/send-general', emailSendController.sendGeneralEmail);

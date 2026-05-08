@@ -8,6 +8,7 @@ const FormatDataF4 = require('../../models/v2/formatDataF4.model');
 const FormatDataF5 = require('../../models/v2/formatDataF5.model');
 const fs = require('fs');
 const { parse } = require('json2csv');
+const archiver = require('archiver');
 
 // Helper function to convert Excel date serial to DD/MM/YYYY HH:MM format (24-hour)
 const excelDateToFormattedString = (excelDate) => {
@@ -213,9 +214,11 @@ const storage = multer.diskStorage({
   }
 });
 const upload = multer({ storage: storage }).single('file');
+const uploadMany = multer({ storage: storage }).array('files', 50);
 
 const processExcel = async (filePath, month, year, formatType) => {
   const workbook = xlsx.readFile(filePath);
+  const createdMeters = new Set();
 
   // Validation function to check if a sheet contains expected headers/data
   const validateSheet = (sheetName, type) => {
@@ -281,6 +284,7 @@ const processExcel = async (filePath, month, year, formatType) => {
       for (const [meterSerialNumber, dataEntries] of Object.entries(meterGroups)) {
         await FormatDataF1.deleteMany({ month, year, meterSerialNumber });
         await FormatDataF1.create({ month, year, meterSerialNumber, dataEntries });
+        createdMeters.add(meterSerialNumber);
       }
     }
   }
@@ -349,6 +353,7 @@ const processExcel = async (filePath, month, year, formatType) => {
       for (const [meterSerialNumber, dataEntries] of Object.entries(meterGroups)) {
         await FormatDataF2.deleteMany({ month, year, meterSerialNumber });
         await FormatDataF2.create({ month, year, meterSerialNumber, dataEntries });
+        createdMeters.add(meterSerialNumber);
       }
     }
   }
@@ -453,6 +458,7 @@ const processExcel = async (filePath, month, year, formatType) => {
 
         await FormatDataF3.deleteMany({ month, year, meterSerialNumber });
         await FormatDataF3.create({ month, year, meterSerialNumber, ...metadata, dataEntries });
+        createdMeters.add(meterSerialNumber);
       }
     }
   }
@@ -527,6 +533,7 @@ const processExcel = async (filePath, month, year, formatType) => {
 
       await FormatDataF4.deleteMany({ month, year, meterSerialNumber });
       await FormatDataF4.create({ month, year, meterSerialNumber, title: titleStr, dataEntries });
+      createdMeters.add(meterSerialNumber);
     }
   }
 
@@ -647,6 +654,7 @@ const processExcel = async (filePath, month, year, formatType) => {
 
       await FormatDataF5.deleteMany({ month, year, meterSerialNumber });
       await FormatDataF5.create({ month, year, meterSerialNumber, dataEntries });
+      createdMeters.add(meterSerialNumber);
     }
   }
 
@@ -656,6 +664,353 @@ const processExcel = async (filePath, month, year, formatType) => {
 
   // Clean up
   fs.unlinkSync(filePath);
+
+  return Array.from(createdMeters);
+};
+
+const generateFormatDataCSV = async ({ month, year, formatType, meterSerialNumber }) => {
+  if (!month || !year || !formatType) {
+    const err = new Error('Month, Year, and Format Type are required');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  let data;
+  let Model;
+
+  switch (formatType) {
+    case 'F1':
+      Model = FormatDataF1;
+      break;
+    case 'F2':
+      Model = FormatDataF2;
+      break;
+    case 'F3':
+      Model = FormatDataF3;
+      break;
+    case 'F4':
+      Model = FormatDataF4;
+      break;
+    case 'F5':
+      Model = FormatDataF5;
+      break;
+    default: {
+      const err = new Error('Invalid format type. Must be F1, F2, F3, F4, or F5');
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+
+  const query = { month, year };
+  if (meterSerialNumber) query.meterSerialNumber = meterSerialNumber;
+
+  data = await Model.findOne(query).lean();
+  if (!data) {
+    const err = new Error(`No ${formatType} data found for ${month} ${year}`);
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const daysInMonth = getDaysInMonth(month, year);
+  const monthIndex = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ].indexOf(month) + 1;
+
+  let csvData = [];
+  let fixedLines = [];
+
+  if (formatType === 'F5') {
+    fixedLines = [
+      ['Consumption (Energy) are in k (e.g. kWH, kVAh, kVArh)'],
+      ['Demand (Power) are in k (e.g. kW, kVA, kVAr)'],
+      ['Voltages are in V'],
+      ['Currents are in A'],
+      ['Dates are in dd/mm/yyyy'],
+      ['Value ***.** indicates meter was power off during complete interval'],
+      ['']
+    ];
+
+    if (data.dataEntries && data.dataEntries.length > 0) {
+      const filteredEntries = data.dataEntries.filter(entry => {
+        if (!entry.date) return false;
+        const dateMatch = entry.date.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        if (dateMatch) {
+          const [, , entryMonth, entryYear] = dateMatch;
+          return parseInt(entryMonth) === monthIndex && parseInt(entryYear) === parseInt(year);
+        }
+        return false;
+      });
+
+      csvData = filteredEntries.map(entry => ({
+        'Date': entry.date || '',
+        'Interval Start': entry.intervalStart || '',
+        'Interval End': entry.intervalEnd || '',
+        'KW Imp.': entry.kwImp || 0,
+        'KW Exp.': entry.kwExp || 0,
+        'KVA Imp.': entry.kvaImp || 0,
+        'KVA Exp.': entry.kvaExp || 0,
+        'KWh Imp. [1.0.1.29.0.255]': entry.kwhImp || 0,
+        'KWh Exp. [1.0.2.29.0.255]': entry.kwhExp || 0,
+        'Net KWh [1.0.16.29.0.255]': entry.netKwh || 0,
+        'KVAh Imp. [1.0.9.29.0.255]': entry.kvahImp || 0,
+        'KVAh Exp. [1.0.10.29.0.255]': entry.kvahExp || 0,
+        'Kvarh Lg Dur Wh Imp. [1.0.5.29.0.255]': entry.kvarhLgDurWhImp || 0,
+        'Kvarh Ld Dur Wh Imp. [1.0.8.29.0.255]': entry.kvarhLdDurWhImp || 0,
+        'Kvarh Lg Dur Wh Exp. [1.0.7.29.0.255]': entry.kvarhLgDurWhExp || 0,
+        'Kvarh Ld Dur Wh Exp. [1.0.6.29.0.255]': entry.kvarhLdDurWhExp || 0,
+        'Avg. R-Ph  Volt [1.0.32.27.0.255]': entry.avgRPhVolt || 0,
+        'Avg. Y-Ph  Volt [1.0.52.27.0.255]': entry.avgYPhVolt || 0,
+        'Avg. B-Ph  Volt [1.0.72.27.0.255]': entry.avgBPhVolt || 0,
+        'Average Volt': entry.averageVolt || 0,
+        'Avg. R-Ph  Amp. [1.0.31.27.0.255]': entry.avgRPhAmp || 0,
+        'Avg. Y-Ph  Amp. [1.0.51.27.0.255]': entry.avgYPhAmp || 0,
+        'Avg. B-Ph  Amp. [1.0.71.27.0.255]': entry.avgBPhAmp || 0,
+        'Average Amp.': entry.averageAmp || 0,
+        'Coded Freq. [1.0.207.29.0.255]': entry.codedFreq || '',
+        'Avg. Freq. [1.0.14.27.0.255](Hz.)': entry.avgFreq || 0,
+        'power off minutes of last IP [1.0.139.29.0.255] (Min)': entry.powerOffMinutes || 0,
+        'Kvarh High Import [1.0.146.29.0.255]': entry.kvarhHighImport || 0,
+        'Kvarh High Export [1.0.147.29.0.255]': entry.kvarhHighExport || 0,
+        'Kvarh Low Import [1.0.148.29.0.255]': entry.kvarhLowImport || 0,
+        'Kvarh Low Export [1.0.149.29.0.255]': entry.kvarhLowExport || 0,
+        'Kvarh Net Reac.High(Q1 + Q2 - Q3 - Q4)[1.0.196.8.0.255]': entry.kvarhNetReacHigh || 0,
+        'Kvarh Net Reac.Low(Q1 + Q2 - Q3 - Q4)[1.0.197.8.0.255]': entry.kvarhNetReacLow || 0,
+        'Power Factor Imp.': entry.powerFactorImp || '',
+        'Power Factor Exp.': entry.powerFactorExp || 0
+      }));
+    }
+  } else {
+    // F1, F2, F3, F4 - UNIFIED DOWNLOAD FORMAT FOR ALL FORMATS
+    // All formats download in the same structure as "Format" sheet
+    // Only HIGHLIGHTED columns will have data, rest will be empty ("")
+
+    fixedLines = [
+      ['Energy parameters are in k (e.g. kWH, kVAh, kVArh)'],
+      ['Demand (Power) are in k (e.g. kW, kVA, kVAr)'],
+      ['Voltages are in V'],
+      ['Currents are in A'],
+      ["Dates are in 'dd/mm/yyyy' format"],
+      ['Value ***.** indicates either meter was power off or data not available during complete interval'],
+      [' ']
+    ];
+
+    // For F4, use uploaded intervals directly (no generation)
+    // For F1, F2, F3, generate all 15-minute intervals for the month
+    let allIntervals = [];
+
+    if (formatType === 'F4') {
+      if (data.dataEntries && data.dataEntries.length > 0) {
+        allIntervals = data.dataEntries.map(entry => {
+          const match = entry.time.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/);
+          if (match) {
+            const [, day, monthNum, yearNum, hours, minutes] = match;
+            const startMinutes = parseInt(minutes);
+            const endMinutes = startMinutes + 15;
+            const endHours = endMinutes >= 60 ? parseInt(hours) + 1 : parseInt(hours);
+
+            return {
+              date: `${day}/${monthNum}/${yearNum}`,
+              intervalStart: `${hours}:${minutes}`,
+              intervalEnd: `${String(endHours % 24).padStart(2, '0')}:${String(endMinutes % 60).padStart(2, '0')}`,
+              entry
+            };
+          }
+          return null;
+        }).filter(Boolean);
+      }
+    } else {
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dayIntervals = generate15MinIntervals(day, monthIndex, year);
+        allIntervals.push(...dayIntervals);
+      }
+    }
+
+    // Map data entries to intervals based on format type
+    const dataMap = {};
+
+    if (formatType === 'F1') {
+      if (data.dataEntries && data.dataEntries.length > 0) {
+        data.dataEntries.forEach((entry) => {
+          let timestamp = entry.meterDataCaptureTimestamp;
+          if (timestamp) {
+            const match = timestamp.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})/);
+            if (match) {
+              let [, day, monthNum, yearNum, hours, minutes] = match;
+              day = parseInt(day);
+              monthNum = parseInt(monthNum);
+              hours = parseInt(hours);
+              minutes = Math.floor(parseInt(minutes) / 15) * 15;
+
+              if (monthNum === monthIndex) {
+                const key = `${String(day).padStart(2, '0')}/${String(monthNum).padStart(2, '0')}/${yearNum} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+                dataMap[key] = entry;
+              }
+            }
+          }
+        });
+      }
+    } else if (formatType === 'F2') {
+      if (data.dataEntries && data.dataEntries.length > 0) {
+        data.dataEntries.forEach((entry) => {
+          let timestamp = entry.meterDataCaptureTimestamp;
+          if (timestamp) {
+            const match = timestamp.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})/);
+            if (match) {
+              let [, day, monthNum, yearNum, hours, minutes] = match;
+              day = parseInt(day);
+              monthNum = parseInt(monthNum);
+              hours = parseInt(hours);
+              minutes = Math.floor(parseInt(minutes) / 15) * 15;
+
+              if (monthNum === monthIndex) {
+                const key = `${String(day).padStart(2, '0')}/${String(monthNum).padStart(2, '0')}/${yearNum} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+                dataMap[key] = entry;
+              }
+            }
+          }
+        });
+      }
+    } else if (formatType === 'F3') {
+      if (data.dataEntries && data.dataEntries.length > 0) {
+        data.dataEntries.forEach((entry) => {
+          if (entry.date && entry.intervalStart) {
+            let dateStr = entry.date.toString().replace(/-/g, '/');
+            const key = `${dateStr} ${entry.intervalStart}`;
+            dataMap[key] = entry;
+          }
+        });
+      }
+    }
+
+    // Decide if swap Active(I) and Active(E) for this download
+    const getEntryForInterval = (interval) => {
+      if (formatType === 'F4') return interval.entry;
+      const key = `${interval.date} ${interval.intervalStart}`;
+      return dataMap[key];
+    };
+
+    const getActiveIEFromEntry = (entry) => {
+      if (!entry) return { activeI: 0, activeE: 0 };
+      if (formatType === 'F1') return { activeI: Number(entry.kwhImport || 0), activeE: Number(entry.blockEnergyKWhExp || 0) };
+      if (formatType === 'F2') return { activeI: Number(entry.kwhImport || 0), activeE: Number(entry.blockEnergyKWhExp || 0) };
+      if (formatType === 'F3') return { activeI: Number(entry.kwhI || 0), activeE: Number(entry.kwhE || 0) };
+      if (formatType === 'F4') return { activeI: Number(entry.kwhImport || 0), activeE: Number(entry.kwhExport || 0) };
+      return { activeI: 0, activeE: 0 };
+    };
+
+    let shouldSwapActiveIE = false;
+    outer: for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${String(day).padStart(2, '0')}/${String(monthIndex).padStart(2, '0')}/${year}`;
+      for (let i = 0; i < allIntervals.length; i++) {
+        const interval = allIntervals[i];
+        if (!interval || interval.date !== dateStr) continue;
+        const start = interval.intervalStart;
+        if (!['00:00', '00:15', '00:30', '00:45', '01:00'].includes(start)) continue;
+
+        const entry = getEntryForInterval(interval);
+        const { activeI, activeE } = getActiveIEFromEntry(entry);
+
+        if ((activeI === 0 || Number.isNaN(activeI)) && (activeE === 0 || Number.isNaN(activeE))) {
+          continue;
+        }
+
+        shouldSwapActiveIE = activeI > activeE;
+        break outer;
+      }
+    }
+
+    csvData = allIntervals.map(interval => {
+      let entry;
+      if (formatType === 'F4') {
+        entry = interval.entry;
+      } else {
+        const key = `${interval.date} ${interval.intervalStart}`;
+        entry = dataMap[key];
+      }
+
+      let activeI = 0, activeE = 0, netActive = 0;
+
+      if (entry) {
+        if (formatType === 'F1') {
+          activeI = entry.kwhImport || 0;
+          activeE = entry.blockEnergyKWhExp || 0;
+          netActive = entry.netActiveEnergy || 0;
+        } else if (formatType === 'F2') {
+          activeI = entry.kwhImport || 0;
+          activeE = entry.blockEnergyKWhExp || 0;
+          netActive = entry.netActiveEnergy || 0;
+        } else if (formatType === 'F3') {
+          activeI = entry.kwhI || 0;
+          activeE = entry.kwhE || 0;
+          netActive = entry.kwhNet || 0;
+        } else if (formatType === 'F4') {
+          activeI = entry.kwhImport || 0;
+          activeE = entry.kwhExport || 0;
+          netActive = activeI - activeE;
+        }
+      }
+
+      if (shouldSwapActiveIE) {
+        const tmp = activeI;
+        activeI = activeE;
+        activeE = tmp;
+        netActive = Number(activeI || 0) - Number(activeE || 0);
+      }
+
+      return {
+        'Date': interval.date,
+        'Interval Start': interval.intervalStart,
+        'Interval End': interval.intervalEnd,
+        'Active(I) Total': activeI,
+        'Active(E) Total': activeE,
+        'Reactive(I)-Active(I)': '',
+        'Reactive(E)-Active(I)': '',
+        'Reactive(I)-Active(E)': '',
+        'Reactive(E)-Active(E)': '',
+        'Apparent-Active(I) - type 2': '',
+        'Apparent-Active(E) - type 6': '',
+        'Net Active': netActive,
+        'Average Voltage': '',
+        'Average Current': '',
+        'Frequency': '',
+        'Calculated Avg Imp Power Factor (signed)': '',
+        'Calculated Avg Exp Power Factor (signed)': ''
+      };
+    });
+  }
+
+  if (!csvData || csvData.length === 0) {
+    const err = new Error(`No data found for ${formatType} in ${month} ${year}`);
+    err.statusCode = 404;
+    throw err;
+  }
+
+  let csvLines = [];
+  fixedLines.forEach(line => {
+    csvLines.push(line.join(','));
+  });
+
+  const columnHeaders = Object.keys(csvData[0]);
+  csvLines.push(columnHeaders.join(','));
+  csvData.forEach(row => {
+    const values = columnHeaders.map(header => {
+      const value = row[header];
+      if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+        return `"${value.replace(/"/g, '""')}"`;
+      }
+      return value;
+    });
+    csvLines.push(values.join(','));
+  });
+
+  const finalCSV = csvLines.join('\n');
+
+  const startDate = `01-${String(monthIndex).padStart(2, '0')}-${year.toString().slice(-2)}`;
+  const endDate = `${String(daysInMonth).padStart(2, '0')}-${String(monthIndex).padStart(2, '0')}-${year.toString().slice(-2)}`;
+  const filename = `Load Survey - ${data.meterSerialNumber} - ${startDate} to ${endDate} - Logger1.csv`;
+
+  return { csv: finalCSV, filename, meterSerialNumber: data.meterSerialNumber };
 };
 
 exports.uploadFormatData = (req, res) => {
@@ -737,6 +1092,101 @@ exports.uploadFormatDataAuto = (req, res) => {
         fs.unlinkSync(req.file.path);
       }
       res.status(400).json({ success: false, message: error.message || 'Error processing excel file' });
+    }
+  });
+};
+
+// Bulk convert multiple files and download as a ZIP (each CSV formatted output as a file in ZIP)
+exports.convertBulkAndDownloadZip = (req, res) => {
+  uploadMany(req, res, async (err) => {
+    if (err) {
+      return res.status(500).json({ success: false, message: 'File upload error', error: err.message });
+    }
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ success: false, message: 'No files uploaded' });
+    }
+
+    try {
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="format-data-${Date.now()}.zip"`);
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+
+      const archive = archiver('zip', { zlib: { level: 9 } });
+      archive.on('error', (archiveErr) => {
+        throw archiveErr;
+      });
+      archive.pipe(res);
+
+      const results = [];
+      const usedNames = new Set();
+
+      for (const f of req.files) {
+        const workbook = xlsx.readFile(f.path);
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const jsonData = xlsx.utils.sheet_to_json(firstSheet, { header: 1 });
+
+        const detectedFormat = detectFormatType(jsonData);
+        if (!detectedFormat) {
+          if (fs.existsSync(f.path)) fs.unlinkSync(f.path);
+          results.push({ file: f.originalname, success: false, reason: 'Could not detect file format' });
+          continue;
+        }
+
+        const detectedMonthYear = detectMonthYear(jsonData, detectedFormat);
+        if (!detectedMonthYear) {
+          if (fs.existsSync(f.path)) fs.unlinkSync(f.path);
+          results.push({ file: f.originalname, success: false, reason: 'Could not detect month/year' });
+          continue;
+        }
+
+        // Process and store, return meters created
+        const meters = await processExcel(f.path, detectedMonthYear.month, detectedMonthYear.year, detectedFormat);
+
+        // Generate CSV for each meter and add to ZIP
+        for (const meter of meters.length ? meters : [undefined]) {
+          const { csv, filename } = await generateFormatDataCSV({
+            month: detectedMonthYear.month,
+            year: detectedMonthYear.year,
+            formatType: detectedFormat,
+            meterSerialNumber: meter
+          });
+
+          // Put all files at ZIP root (no subfolders). Ensure uniqueness.
+          let zipName = filename;
+          if (usedNames.has(zipName)) {
+            const ext = path.extname(zipName);
+            const base = path.basename(zipName, ext);
+            let i = 2;
+            while (usedNames.has(`${base} (${i})${ext}`)) i++;
+            zipName = `${base} (${i})${ext}`;
+          }
+          usedNames.add(zipName);
+          archive.append(csv, { name: zipName });
+        }
+
+        results.push({
+          file: f.originalname,
+          success: true,
+          formatType: detectedFormat,
+          month: detectedMonthYear.month,
+          year: detectedMonthYear.year,
+          metersCreated: meters.length
+        });
+      }
+
+      archive.append(JSON.stringify({ success: true, results }, null, 2), {
+        name: `_summary.json`
+      });
+
+      await archive.finalize();
+    } catch (error) {
+      console.error("Bulk convert error:", error);
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, message: error.message || 'Error converting files' });
+      } else {
+        try { res.end(); } catch {}
+      }
     }
   });
 };
@@ -998,6 +1448,61 @@ exports.downloadFormatDataCSV = async (req, res) => {
       // }
     }
 
+    // Decide if we need to swap Active(I) and Active(E) for this download.
+    // Rule:
+    // - Check day-by-day from 1..end of month
+    // - For each day, check first 5 intervals (00:00 to 01:15)
+    // - Find the first interval with any non-zero data (either I or E)
+    // - If at that interval Active(I) > Active(E), then swap for the whole sheet
+    // - If both are 0, keep searching next interval/day
+    const getEntryForInterval = (interval) => {
+      if (formatType === 'F4') return interval.entry;
+      const key = `${interval.date} ${interval.intervalStart}`;
+      return dataMap[key];
+    };
+
+    const getActiveIEFromEntry = (entry) => {
+      if (!entry) return { activeI: 0, activeE: 0 };
+      if (formatType === 'F1') {
+        return { activeI: Number(entry.kwhImport || 0), activeE: Number(entry.blockEnergyKWhExp || 0) };
+      }
+      if (formatType === 'F2') {
+        return { activeI: Number(entry.kwhImport || 0), activeE: Number(entry.blockEnergyKWhExp || 0) };
+      }
+      if (formatType === 'F3') {
+        return { activeI: Number(entry.kwhI || 0), activeE: Number(entry.kwhE || 0) };
+      }
+      if (formatType === 'F4') {
+        return { activeI: Number(entry.kwhImport || 0), activeE: Number(entry.kwhExport || 0) };
+      }
+      return { activeI: 0, activeE: 0 };
+    };
+
+    let shouldSwapActiveIE = false;
+    outer: for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${String(day).padStart(2, '0')}/${String(monthIndex).padStart(2, '0')}/${year}`;
+      for (let i = 0; i < allIntervals.length; i++) {
+        const interval = allIntervals[i];
+        if (!interval || interval.date !== dateStr) continue;
+
+        // First 5 intervals for that date (00:00, 00:15, 00:30, 00:45, 01:00)
+        const start = interval.intervalStart;
+        if (!['00:00', '00:15', '00:30', '00:45', '01:00'].includes(start)) continue;
+
+        const entry = getEntryForInterval(interval);
+        const { activeI, activeE } = getActiveIEFromEntry(entry);
+
+        // If both are 0, skip to the next interval/day
+        if ((activeI === 0 || Number.isNaN(activeI)) && (activeE === 0 || Number.isNaN(activeE))) {
+          continue;
+        }
+
+        // Decide swap based on first usable interval
+        shouldSwapActiveIE = activeI > activeE;
+        break outer;
+      }
+    }
+
     // Generate CSV rows with UNIFIED column structure
     // Only HIGHLIGHTED columns get data, rest remain empty ("")
     csvData = allIntervals.map(interval => {
@@ -1036,6 +1541,15 @@ exports.downloadFormatDataCSV = async (req, res) => {
           activeE = entry.kwhExport || 0;
           netActive = activeI - activeE;
         }
+      }
+
+      // Apply swap if required for solar-generation style sheets.
+      if (shouldSwapActiveIE) {
+        const tmp = activeI;
+        activeI = activeE;
+        activeE = tmp;
+        // Net Active must follow swapped values.
+        netActive = Number(activeI || 0) - Number(activeE || 0);
       }
 
       // Return row with ONLY highlighted columns having data

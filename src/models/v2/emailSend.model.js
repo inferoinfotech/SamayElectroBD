@@ -51,9 +51,13 @@ const emailSendSchema = new mongoose.Schema({
     
     // Uploaded files for this batch
     uploadedFiles: [{
+        meterNumber: { type: String },
         filename: { type: String },
         originalName: { type: String },
         path: { type: String },
+        cloudinaryUrl: { type: String },
+        cloudinaryPublicId: { type: String },
+        mimetype: { type: String },
         size: { type: Number },
         uploadedAt: { type: Date, default: Date.now }
     }],

@@ -5,6 +5,7 @@ const formatDataController = require('../../controllers/v2/formatDataController'
 // Define routes
 router.post('/upload', formatDataController.uploadFormatData);
 router.post('/upload-auto', formatDataController.uploadFormatDataAuto); // Auto-detect format/month/year
+router.post('/convert-bulk', formatDataController.convertBulkAndDownloadZip); // Bulk convert + zip download
 router.get('/download', formatDataController.downloadFormatDataCSV);
 router.get('/all-uploads', formatDataController.getAllUploadedFormats);
 router.get('/meters', formatDataController.getAvailableMeters);
