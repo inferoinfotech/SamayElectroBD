@@ -4,6 +4,10 @@ const Policy = require('../../models/v2/policy.model');
 const SubClient = require('../../models/v1/subClient.model');
 const logger = require('../../utils/logger');
 const mongoose = require('mongoose');
+const {
+  filterActivePolicyItems,
+  sanitizeClientPolicyDocument,
+} = require('../../utils/policyItems');
 
 // Assign a policy to a client
 exports.assignPolicyToClient = async (req, res) => {
@@ -35,6 +39,7 @@ exports.assignPolicyToClient = async (req, res) => {
     if (!policy) {
       return res.status(404).json({ message: 'Policy not found' });
     }
+    const activePolicyItems = filterActivePolicyItems(policy.policies);
 
     // Check if client already has any policy assigned (one policy per client rule)
     const existingClientPolicy = await ClientPolicy.findOne({
@@ -57,7 +62,7 @@ exports.assignPolicyToClient = async (req, res) => {
       // If policies array is provided, use it; otherwise create default entries
       if (policies && Array.isArray(policies)) {
         // Validate that all policyItemIds exist in the new policy
-        const policyItemIds = policy.policies.map((p) => p._id.toString());
+        const policyItemIds = activePolicyItems.map((p) => p._id.toString());
         for (const policyItem of policies) {
           if (!policyItem.policyItemId) {
             return res.status(400).json({
@@ -73,7 +78,7 @@ exports.assignPolicyToClient = async (req, res) => {
         existingClientPolicy.policies = policies;
       } else {
         // Create default entries for all sub-policies from the new policy
-        existingClientPolicy.policies = policy.policies.map((p) => ({
+        existingClientPolicy.policies = activePolicyItems.map((p) => ({
           policyItemId: p._id,
           apply: true,
         }));
@@ -91,7 +96,7 @@ exports.assignPolicyToClient = async (req, res) => {
       logger.info(`Policy updated for client: ${subClientId} -> ${policyId}`);
       return res.status(200).json({
         message: 'Client policy updated successfully (replaced with new policy)',
-        clientPolicy: existingClientPolicy,
+        clientPolicy: sanitizeClientPolicyDocument(existingClientPolicy),
       });
     }
 
@@ -99,7 +104,7 @@ exports.assignPolicyToClient = async (req, res) => {
     let policiesArray = [];
     if (policies && Array.isArray(policies)) {
       // Validate that all policyItemIds exist in the policy
-      const policyItemIds = policy.policies.map((p) => p._id.toString());
+      const policyItemIds = activePolicyItems.map((p) => p._id.toString());
       for (const policyItem of policies) {
         if (!policyItem.policyItemId) {
           return res.status(400).json({
@@ -115,7 +120,7 @@ exports.assignPolicyToClient = async (req, res) => {
       policiesArray = policies;
     } else {
       // If no policies array provided, create default entries for all sub-policies
-      policiesArray = policy.policies.map((p) => ({
+      policiesArray = activePolicyItems.map((p) => ({
         policyItemId: p._id,
         apply: true,
       }));
@@ -138,7 +143,7 @@ exports.assignPolicyToClient = async (req, res) => {
     logger.info(`Policy assigned to client: ${subClientId} -> ${policyId}`);
     res.status(201).json({
       message: 'Policy assigned to client successfully',
-      clientPolicy,
+      clientPolicy: sanitizeClientPolicyDocument(clientPolicy),
     });
   } catch (error) {
     if (error.code === 11000) {
@@ -182,7 +187,9 @@ exports.getAllClientPolicies = async (req, res) => {
       .sort({ createdAt: -1 });
 
     logger.info(`Retrieved ${clientPolicies.length} client-policy mappings`);
-    res.status(200).json({ clientPolicies });
+    res.status(200).json({
+      clientPolicies: clientPolicies.map(sanitizeClientPolicyDocument),
+    });
   } catch (error) {
     logger.error(`Error retrieving client-policy mappings: ${error.message}`);
     res.status(500).json({ message: error.message });
@@ -208,7 +215,7 @@ exports.getClientPolicyById = async (req, res) => {
     }
 
     logger.info(`Retrieved client-policy mapping: ${clientPolicyId}`);
-    res.status(200).json({ clientPolicy });
+    res.status(200).json({ clientPolicy: sanitizeClientPolicyDocument(clientPolicy) });
   } catch (error) {
     logger.error(`Error retrieving client-policy mapping: ${error.message}`);
     res.status(500).json({ message: error.message });
@@ -232,7 +239,9 @@ exports.getClientPolicies = async (req, res) => {
       .sort({ effectiveDate: -1 });
 
     logger.info(`Retrieved policies for client: ${clientId}`);
-    res.status(200).json({ clientPolicies });
+    res.status(200).json({
+      clientPolicies: clientPolicies.map(sanitizeClientPolicyDocument),
+    });
   } catch (error) {
     logger.error(`Error retrieving client policies: ${error.message}`);
     res.status(500).json({ message: error.message });
@@ -261,7 +270,9 @@ exports.updateClientPolicy = async (req, res) => {
     // If policies array is provided, validate it
     if (policies && Array.isArray(policies)) {
       const policy = await Policy.findById(clientPolicy.policyId);
-      const policyItemIds = policy.policies.map((p) => p._id.toString());
+      const policyItemIds = filterActivePolicyItems(policy.policies).map((p) =>
+        p._id.toString()
+      );
 
       for (const policyItem of policies) {
         if (!policyItem.policyItemId) {
@@ -289,7 +300,7 @@ exports.updateClientPolicy = async (req, res) => {
     logger.info(`Client-policy mapping updated: ${clientPolicyId}`);
     res.status(200).json({
       message: 'Client-policy mapping updated successfully',
-      clientPolicy,
+      clientPolicy: sanitizeClientPolicyDocument(clientPolicy),
     });
   } catch (error) {
     logger.error(`Error updating client-policy mapping: ${error.message}`);
@@ -334,7 +345,7 @@ exports.updateClientSubPolicy = async (req, res) => {
     logger.info(`Client sub-policy updated: ${subPolicyId}`);
     res.status(200).json({
       message: 'Client sub-policy updated successfully',
-      clientPolicy,
+      clientPolicy: sanitizeClientPolicyDocument(clientPolicy),
     });
   } catch (error) {
     logger.error(`Error updating client sub-policy: ${error.message}`);

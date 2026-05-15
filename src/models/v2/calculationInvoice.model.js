@@ -349,6 +349,7 @@ const calculationInvoiceSchema = new mongoose.Schema({
         // Section 3: Other (dynamic array)
         section3: [{
             id: { type: String, required: true },
+            policyKey: { type: String },
             particulars: { type: String },
             unitsInKwh: { type: Number },
             rate: { type: Number },

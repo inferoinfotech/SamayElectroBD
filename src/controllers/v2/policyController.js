@@ -3,6 +3,10 @@ const Policy = require('../../models/v2/policy.model');
 const ClientPolicy = require('../../models/v2/clientPolicy.model');
 const logger = require('../../utils/logger');
 const mongoose = require('mongoose');
+const {
+  filterActivePolicyItems,
+  sanitizePolicyDocument,
+} = require('../../utils/policyItems');
 
 // Create a new policy
 exports.createPolicy = async (req, res) => {
@@ -26,7 +30,7 @@ exports.createPolicy = async (req, res) => {
 
     const newPolicy = new Policy({
       name,
-      policies,
+      policies: filterActivePolicyItems(policies),
       effectiveDate: effectiveDate || new Date(),
       isActive: isActive !== undefined ? isActive : true,
     });
@@ -36,7 +40,7 @@ exports.createPolicy = async (req, res) => {
     logger.info(`New Policy created: ${name}`);
     res.status(201).json({
       message: 'Policy created successfully',
-      policy: newPolicy,
+      policy: sanitizePolicyDocument(newPolicy),
     });
   } catch (error) {
     if (error.code === 11000) {
@@ -63,7 +67,7 @@ exports.getAllPolicies = async (req, res) => {
     const policies = await Policy.find(query).sort({ createdAt: -1 });
 
     logger.info(`Retrieved ${policies.length} policies`);
-    res.status(200).json({ policies });
+    res.status(200).json({ policies: policies.map(sanitizePolicyDocument) });
   } catch (error) {
     logger.error(`Error retrieving policies: ${error.message}`);
     res.status(500).json({ message: error.message });
@@ -87,7 +91,7 @@ exports.getPolicyById = async (req, res) => {
     }
 
     logger.info(`Retrieved policy: ${policyId}`);
-    res.status(200).json({ policy });
+    res.status(200).json({ policy: sanitizePolicyDocument(policy) });
   } catch (error) {
     logger.error(`Error retrieving policy: ${error.message}`);
     res.status(500).json({ message: error.message });
@@ -124,7 +128,7 @@ exports.updatePolicy = async (req, res) => {
 
     // Update fields
     if (name !== undefined) policy.name = name;
-    if (policies !== undefined) policy.policies = policies;
+    if (policies !== undefined) policy.policies = filterActivePolicyItems(policies);
     if (effectiveDate !== undefined) policy.effectiveDate = effectiveDate;
     if (isActive !== undefined) policy.isActive = isActive;
 
@@ -133,7 +137,7 @@ exports.updatePolicy = async (req, res) => {
     logger.info(`Policy updated: ${policyId}`);
     res.status(200).json({
       message: 'Policy updated successfully',
-      policy,
+      policy: sanitizePolicyDocument(policy),
     });
   } catch (error) {
     if (error.code === 11000) {
