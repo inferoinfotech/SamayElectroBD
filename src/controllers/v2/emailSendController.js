@@ -14,6 +14,10 @@ const { reencodeCSVtoUTF8 } = require('../../utils/reencodeCSV');
 const { prepareCSVStream } = require('../../utils/prepareCSVStream');
 const archiver = require('archiver');
 const { uploadToCloudinary, deleteFromCloudinary } = require('../../config/cloudinary');
+const {
+    buildEmailVariables,
+    resolveEmailContent,
+} = require('../../utils/emailTemplate');
 
 // Create email transporter
 const createTransporter = () => {
@@ -632,13 +636,32 @@ exports.sendEmailToRecipient = async (req, res) => {
             allRecipients.push(...clientCCEmails);
         }
 
+        const mainClient = await MainClient.findById(recipient.mainClientId).lean();
+        const variables = buildEmailVariables({
+            client: mainClient,
+            recipient,
+            period: batch.period,
+            sendType: batch.sendType,
+        });
+
+        const subjectTemplate =
+            subject ||
+            emailConfig?.template?.subject ||
+            `${batch.sendType === 'weekly' ? 'Weekly' : 'Monthly'} Report - ${recipient.meterNumber}`;
+        const bodyTemplate =
+            body ||
+            emailConfig?.template?.body ||
+            `<p>Dear ${recipient.mainClientName},</p><p>Please find attached your ${batch.sendType} report.</p>`;
+
+        const resolved = resolveEmailContent(subjectTemplate, bodyTemplate, variables);
+
         // Send email to all recipients
         const transporter = createTransporter();
         const mailOptions = {
             from: process.env.EMAIL_USER,
             to: allRecipients.join(','), // Client email + CC emails as recipients
-            subject: subject || `${batch.sendType === 'weekly' ? 'Weekly' : 'Monthly'} Report - ${recipient.meterNumber}`,
-            html: body || `<p>Dear ${recipient.mainClientName},</p><p>Please find attached your ${batch.sendType} report.</p>`,
+            subject: resolved.subject,
+            html: resolved.body,
             attachments
         };
 
@@ -669,8 +692,8 @@ exports.sendEmailToRecipient = async (req, res) => {
         // Update recipient status
         recipient.mailSent = true;
         recipient.sentAt = new Date();
-        recipient.emailSubject = mailOptions.subject;
-        recipient.emailBody = body;
+        recipient.emailSubject = resolved.subject;
+        recipient.emailBody = resolved.body;
         recipient.ccEmails = clientCCEmails; // Store CC emails used (may be empty)
         recipient.error = null; // Clear any previous error
         recipient.attachments = attachments.map(att => ({
@@ -726,9 +749,14 @@ exports.sendEmailToAll = async (req, res) => {
         const emailConfig = await EmailConfig.findOne({ configType: batch.sendType })
             .populate('recipients.clients.clientId', '_id name consumerNo email');
         
-        // Use template from config if available, otherwise use provided or default
-        const emailSubject = subject || emailConfig?.template?.subject || `${batch.sendType === 'weekly' ? 'Weekly' : 'Monthly'} Report`;
-        const emailBody = body || emailConfig?.template?.body || `<p>Dear Client,</p><p>Please find attached your ${batch.sendType} report.</p>`;
+        const subjectTemplate =
+            subject ||
+            emailConfig?.template?.subject ||
+            `${batch.sendType === 'weekly' ? 'Weekly' : 'Monthly'} Report`;
+        const bodyTemplate =
+            body ||
+            emailConfig?.template?.body ||
+            `<p>Dear Client,</p><p>Please find attached your ${batch.sendType} report.</p>`;
 
         batch.status = 'processing';
         await batch.save();
@@ -744,19 +772,40 @@ exports.sendEmailToAll = async (req, res) => {
             }
 
             try {
-                // Find client-specific CC emails from config
+                let clientEmail = recipient.email;
                 let clientCCEmails = [];
+
                 if (emailConfig && emailConfig.recipients.clients) {
-                    const configClient = emailConfig.recipients.clients.find(c => {
+                    const configClient = emailConfig.recipients.clients.find((c) => {
                         const clientId = c.clientId?._id || c.clientId;
-                        return clientId.toString() === recipient.mainClientId.toString();
+                        return (
+                            clientId?.toString() === recipient.mainClientId?.toString() ||
+                            c.clientName === recipient.mainClientName
+                        );
                     });
-                    
-                    if (configClient && configClient.ccEmails && configClient.ccEmails.length > 0) {
-                        clientCCEmails = configClient.ccEmails.map(cc => cc.email);
-                        logger.info(`Found ${clientCCEmails.length} CC email(s) for client ${recipient.mainClientName}: ${clientCCEmails.join(', ')}`);
+
+                    if (configClient) {
+                        if (configClient.email && configClient.email.includes('@')) {
+                            clientEmail = configClient.email;
+                        }
+                        if (configClient.ccEmails?.length > 0) {
+                            clientCCEmails = configClient.ccEmails.map((cc) => cc.email);
+                        }
                     }
                 }
+
+                if (!clientEmail || !clientEmail.includes('@')) {
+                    throw new Error(`No valid email for ${recipient.mainClientName}`);
+                }
+
+                const mainClient = await MainClient.findById(recipient.mainClientId).lean();
+                const variables = buildEmailVariables({
+                    client: mainClient,
+                    recipient,
+                    period: batch.period,
+                    sendType: batch.sendType,
+                });
+                const resolved = resolveEmailContent(subjectTemplate, bodyTemplate, variables);
 
                 // Prepare attachments
                 const attachments = [];
@@ -772,12 +821,13 @@ exports.sendEmailToAll = async (req, res) => {
                     }
                 }
 
+                const allRecipients = [clientEmail, ...clientCCEmails];
+
                 const mailOptions = {
                     from: process.env.EMAIL_USER,
-                    to: recipient.email,
-                    cc: clientCCEmails.length > 0 ? clientCCEmails.join(',') : undefined,
-                    subject: emailSubject,
-                    html: emailBody,
+                    to: allRecipients.join(','),
+                    subject: resolved.subject,
+                    html: resolved.body,
                     attachments
                 };
 
@@ -786,8 +836,8 @@ exports.sendEmailToAll = async (req, res) => {
                 // Update recipient
                 recipient.mailSent = true;
                 recipient.sentAt = new Date();
-                recipient.emailSubject = mailOptions.subject;
-                recipient.emailBody = emailBody;
+                recipient.emailSubject = resolved.subject;
+                recipient.emailBody = resolved.body;
                 recipient.ccEmails = clientCCEmails; // Store CC emails used
                 recipient.attachments = attachments.map(att => ({
                     filename: att.filename,
@@ -847,7 +897,7 @@ exports.deleteEmailBatch = async (req, res) => {
 // Send general email (for General Monthly Email tab)
 exports.sendGeneralEmail = async (req, res) => {
     try {
-        const { clientId, clientName, clientEmail, ccEmails, subject, body, files } = req.body;
+        const { clientId, clientName, clientEmail, ccEmails, subject, body, files, year, month } = req.body;
 
         if (!clientEmail) {
             return res.status(400).json({ message: 'Client email is required' });
@@ -856,6 +906,22 @@ exports.sendGeneralEmail = async (req, res) => {
         if (!subject || !body) {
             return res.status(400).json({ message: 'Subject and body are required' });
         }
+
+        const mainClient = clientId
+            ? await MainClient.findById(clientId).lean()
+            : null;
+
+        const variables = buildEmailVariables({
+            client: mainClient,
+            recipient: { mainClientName: clientName || mainClient?.name },
+            period: {
+                year: year ? parseInt(year, 10) : new Date().getFullYear(),
+                month: month ? parseInt(month, 10) : new Date().getMonth() + 1,
+            },
+            sendType: 'general',
+        });
+
+        const resolved = resolveEmailContent(subject, body, variables);
 
         logger.info(`Sending general email to: ${clientName} (${clientEmail})`);
 
@@ -898,8 +964,8 @@ exports.sendGeneralEmail = async (req, res) => {
         const mailOptions = {
             from: process.env.EMAIL_USER,
             to: allRecipients.join(','),
-            subject: subject,
-            html: body,
+            subject: resolved.subject,
+            html: resolved.body,
             attachments
         };
 

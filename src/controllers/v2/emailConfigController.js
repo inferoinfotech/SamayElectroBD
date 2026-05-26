@@ -3,70 +3,18 @@ const EmailConfig = require('../../models/v2/emailConfig.model');
 const MainClient = require('../../models/v1/mainClient.model');
 const logger = require('../../utils/logger');
 const mongoose = require('mongoose');
-const fs = require('fs');
-const path = require('path');
-
-// Helper function for default email template
-const getDefaultEmailTemplate = () => {
-    // Get backend URL from environment or use default
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
-    
-    // Check which logo file exists (png, jpg, jpeg, svg)
-    const logoExtensions = ['png', 'jpg', 'jpeg', 'svg'];
-    const publicPath = path.join(__dirname, '../../../public/images');
-    
-    let logoFileName = 'logo.png'; // default fallback
-    
-    // Check if public/images directory exists
-    if (fs.existsSync(publicPath)) {
-        // Find which logo file exists
-        for (const ext of logoExtensions) {
-            const logoPath = path.join(publicPath, `logo.${ext}`);
-            if (fs.existsSync(logoPath)) {
-                logoFileName = `logo.${ext}`;
-                logger.info(`Logo file detected: ${logoFileName}`);
-                break;
-            }
-        }
-    }
-    
-    const logoUrl = `${backendUrl}/public/images/${logoFileName}`;
-    
-    return `<div style="font-family: Arial, sans-serif; color: #333;">
-<p>PFA</p>
-
-<p>Regards,</p>
-
-<p><strong>Manish Thummar</strong><br/>
-Mobile : +91 82385 85535</p>
-
-<div style="margin: 20px 0;">
-    <img src="${logoUrl}" alt="Samay Electro Service" style="max-width: 300px;" />
-</div>
-
-<p><strong>A-203, 2nd Floor, Dev Residency,<br/>
-Near Verachha Co-Op. Bank, Yogichowk, Punagam,<br/>
-Surat-395010, Gujarat, India.</strong></p>
-
-<p>E-mail: <a href="mailto:info@samayelectro.com">info@samayelectro.com</a> | <a href="mailto:admin@samayelectro.com">admin@samayelectro.com</a></p>
-
-<p><strong>MSME No.: UDYAM-GJ-22-0293351</strong></p>
-
-<p><strong>GSTIN : 24AJTPT1949D1ZU</strong></p>
-
-<p><strong>Working Hours (IST): 10:00 am to 6:00 pm, Sunday Week off</strong></p>
-
-<p style="color: #4CAF50; font-size: 12px;"><em>please consider the environment before printing this email</em></p>
-</div>`;
-};
+const { getDefaultTemplates } = require('../../utils/emailTemplate');
 
 // Helper function to create default config
 const createDefaultConfig = (configType) => {
+    const templates = getDefaultTemplates();
+    const defaults = templates[configType] || templates.monthly;
+
     return new EmailConfig({
         configType,
         template: {
-            subject: `${configType === 'weekly' ? 'Weekly' : 'Monthly'} Generation Report`,
-            body: getDefaultEmailTemplate(),
+            subject: defaults.subject,
+            body: defaults.body,
             isActive: true
         },
         recipients: { clients: [], ccEmails: [] }

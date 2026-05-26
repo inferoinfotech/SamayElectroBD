@@ -1,5 +1,11 @@
+const dns = require('dns');
 const mongoose = require('mongoose');
 require('dotenv').config();
+
+// Local dev only: Windows DNS may refuse SRV lookups for mongodb+srv URLs.
+if (process.env.NODE_ENV !== 'production') {
+  dns.setServers(['8.8.8.8', '8.8.4.4']);
+}
 
 /**
  * Connects to the MongoDB database using the connection URL from the environment variables.

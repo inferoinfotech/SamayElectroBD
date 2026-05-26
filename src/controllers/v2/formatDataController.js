@@ -200,6 +200,116 @@ const detectMonthYear = (jsonData, formatType) => {
   return null;
 };
 
+const ALLOWED_EXTENSIONS = ['.xlsx', '.xls', '.csv'];
+
+const validateFormatStructure = (jsonData, formatType) => {
+  if (!jsonData || jsonData.length === 0) {
+    throw new Error('File is empty');
+  }
+
+  if (formatType === 'F1' || formatType === 'F2') {
+    let hasData = false;
+    for (let i = 1; i < jsonData.length; i++) {
+      const row = jsonData[i];
+      if (row?.[1]) {
+        hasData = true;
+        break;
+      }
+    }
+    if (!hasData) throw new Error(`${formatType} sheet is empty or invalid format`);
+  } else if (formatType === 'F3') {
+    const meterSerialNumber = jsonData[1]?.[1]?.toString();
+    if (!meterSerialNumber) {
+      throw new Error('Invalid F3 format. Missing meter serial number at row 2, column B');
+    }
+    let hasEntries = false;
+    for (let i = 18; i < jsonData.length; i++) {
+      if (jsonData[i]?.[0]) {
+        hasEntries = true;
+        break;
+      }
+    }
+    if (!hasEntries) throw new Error('F3 sheet has no data entries');
+  } else if (formatType === 'F4') {
+    const titleStr = jsonData[0]?.[0]?.toString() || '';
+    const match = titleStr.match(/data of ([a-zA-Z0-9_-]+) from/i);
+    if (!match) {
+      throw new Error('Invalid F4 format. Missing title with meter serial number at row 1');
+    }
+    let hasEntries = false;
+    for (let i = 3; i < jsonData.length; i++) {
+      if (jsonData[i]?.[1]) {
+        hasEntries = true;
+        break;
+      }
+    }
+    if (!hasEntries) throw new Error('F4 sheet has no data entries');
+  } else if (formatType === 'F5') {
+    let hasEntries = false;
+    for (let i = 8; i < jsonData.length; i++) {
+      if (jsonData[i]?.[0]) {
+        hasEntries = true;
+        break;
+      }
+    }
+    if (!hasEntries) throw new Error('F5 sheet has no data entries');
+  }
+};
+
+const validateExcelFile = (filePath, originalName = '') => {
+  const ext = path.extname(originalName || filePath).toLowerCase();
+  if (!ALLOWED_EXTENSIONS.includes(ext)) {
+    return { valid: false, message: 'Invalid file type. Only .xlsx, .xls, .csv allowed' };
+  }
+
+  let workbook;
+  try {
+    workbook = xlsx.readFile(filePath);
+  } catch {
+    return { valid: false, message: 'Could not read file. File may be corrupt or password-protected' };
+  }
+
+  if (!workbook.SheetNames?.length) {
+    return { valid: false, message: 'File has no worksheets' };
+  }
+
+  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+  const jsonData = xlsx.utils.sheet_to_json(firstSheet, { header: 1 });
+
+  const detectedFormat = detectFormatType(jsonData);
+  if (!detectedFormat) {
+    return { valid: false, message: 'Could not detect file format (must be F1, F2, F3, F4, or F5)' };
+  }
+
+  const detectedMonthYear = detectMonthYear(jsonData, detectedFormat);
+  if (!detectedMonthYear) {
+    return {
+      valid: false,
+      message: 'Could not detect month/year from file data',
+      formatType: detectedFormat,
+    };
+  }
+
+  try {
+    validateFormatStructure(jsonData, detectedFormat);
+  } catch (err) {
+    return {
+      valid: false,
+      message: err.message,
+      formatType: detectedFormat,
+      month: detectedMonthYear.month,
+      year: detectedMonthYear.year,
+    };
+  }
+
+  return {
+    valid: true,
+    formatType: detectedFormat,
+    month: detectedMonthYear.month,
+    year: detectedMonthYear.year,
+  };
+};
+
 // Configure multer
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -1011,6 +1121,256 @@ const generateFormatDataCSV = async ({ month, year, formatType, meterSerialNumbe
   const filename = `Load Survey - ${data.meterSerialNumber} - ${startDate} to ${endDate} - Logger1.csv`;
 
   return { csv: finalCSV, filename, meterSerialNumber: data.meterSerialNumber };
+};
+
+// Validate multiple files without saving to DB
+exports.validateBulkFiles = (req, res) => {
+  uploadMany(req, res, async (err) => {
+    if (err) {
+      return res.status(500).json({ success: false, message: 'File upload error', error: err.message });
+    }
+
+    if (!req.files?.length) {
+      return res.status(400).json({ success: false, message: 'No files uploaded' });
+    }
+
+    const results = req.files.map((f) => {
+      const validation = validateExcelFile(f.path, f.originalname);
+      if (fs.existsSync(f.path)) fs.unlinkSync(f.path);
+      return {
+        file: f.originalname,
+        ...validation,
+      };
+    });
+
+    const validCount = results.filter((r) => r.valid).length;
+
+    return res.status(200).json({
+      success: true,
+      results,
+      validCount,
+      invalidCount: results.length - validCount,
+    });
+  });
+};
+
+// Bulk upload — only processes files that pass validation
+exports.uploadBulkFormatData = (req, res) => {
+  uploadMany(req, res, async (err) => {
+    if (err) {
+      return res.status(500).json({ success: false, message: 'File upload error', error: err.message });
+    }
+
+    if (!req.files?.length) {
+      return res.status(400).json({ success: false, message: 'No files uploaded' });
+    }
+
+    const results = [];
+
+    for (const f of req.files) {
+      const validation = validateExcelFile(f.path, f.originalname);
+
+      if (!validation.valid) {
+        if (fs.existsSync(f.path)) fs.unlinkSync(f.path);
+        results.push({
+          file: f.originalname,
+          success: false,
+          message: validation.message,
+        });
+        continue;
+      }
+
+      try {
+        const meters = await processExcel(
+          f.path,
+          validation.month,
+          validation.year,
+          validation.formatType
+        );
+        results.push({
+          file: f.originalname,
+          success: true,
+          message: 'Uploaded successfully',
+          formatType: validation.formatType,
+          month: validation.month,
+          year: validation.year,
+          meters,
+        });
+      } catch (error) {
+        if (fs.existsSync(f.path)) fs.unlinkSync(f.path);
+        results.push({
+          file: f.originalname,
+          success: false,
+          message: error.message || 'Error processing file',
+        });
+      }
+    }
+
+    const successCount = results.filter((r) => r.success).length;
+    const lastSuccess = [...results].reverse().find((r) => r.success);
+
+    return res.status(200).json({
+      success: successCount > 0,
+      message:
+        successCount > 0
+          ? `${successCount} of ${results.length} file(s) uploaded successfully`
+          : 'No files were uploaded',
+      results,
+      successCount,
+      lastUpload: lastSuccess
+        ? {
+            formatType: lastSuccess.formatType,
+            month: lastSuccess.month,
+            year: lastSuccess.year,
+          }
+        : null,
+    });
+  });
+};
+
+const FORMAT_MODELS = [
+  { formatType: 'F1', Model: FormatDataF1 },
+  { formatType: 'F2', Model: FormatDataF2 },
+  { formatType: 'F3', Model: FormatDataF3 },
+  { formatType: 'F4', Model: FormatDataF4 },
+  { formatType: 'F5', Model: FormatDataF5 },
+];
+
+// Check if any format data exists for month/year (no format filter)
+exports.checkPeriodAvailability = async (req, res) => {
+  try {
+    const { month, year } = req.query;
+
+    if (!month || !year) {
+      return res.status(400).json({
+        success: false,
+        message: 'Month and Year are required',
+      });
+    }
+
+    let fileCount = 0;
+    const formats = [];
+
+    for (const { formatType, Model } of FORMAT_MODELS) {
+      const records = await Model.find({ month, year })
+        .select('meterSerialNumber')
+        .lean();
+      if (records.length) {
+        fileCount += records.length;
+        formats.push({
+          formatType,
+          meters: records.map((r) => r.meterSerialNumber),
+        });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      available: fileCount > 0,
+      fileCount,
+      formats,
+    });
+  } catch (error) {
+    console.error('Period check error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error checking data availability',
+    });
+  }
+};
+
+// Download all meters for month/year (all formats) as ZIP
+exports.downloadFormatDataZip = async (req, res) => {
+  try {
+    const { month, year, formatType } = req.query;
+
+    if (!month || !year) {
+      return res.status(400).json({
+        success: false,
+        message: 'Month and Year are required',
+      });
+    }
+
+    const modelsToProcess = formatType
+      ? FORMAT_MODELS.filter((f) => f.formatType === formatType)
+      : FORMAT_MODELS;
+
+    if (formatType && modelsToProcess.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid format type. Must be F1, F2, F3, F4, or F5',
+      });
+    }
+
+    let recordCount = 0;
+    for (const { Model } of modelsToProcess) {
+      recordCount += await Model.countDocuments({ month, year });
+    }
+
+    if (recordCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: `No data found for ${month} ${year}`,
+      });
+    }
+
+    const zipFilename = formatType
+      ? `format-data-${formatType}-${month}-${year}.zip`
+      : `format-data-${month}-${year}.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (archiveErr) => {
+      throw archiveErr;
+    });
+    archive.pipe(res);
+
+    const usedNames = new Set();
+    let totalAdded = 0;
+
+    for (const { formatType: fmt, Model } of modelsToProcess) {
+      const records = await Model.find({ month, year }).lean();
+
+      for (const record of records) {
+        const { csv, filename } = await generateFormatDataCSV({
+          month,
+          year,
+          formatType: fmt,
+          meterSerialNumber: record.meterSerialNumber,
+        });
+
+        let zipName = `${fmt}/${filename}`;
+        if (usedNames.has(zipName)) {
+          const ext = path.extname(zipName);
+          const base = path.basename(zipName, ext);
+          const dir = path.dirname(zipName);
+          let i = 2;
+          while (usedNames.has(`${dir}/${base} (${i})${ext}`)) i++;
+          zipName = `${dir}/${base} (${i})${ext}`;
+        }
+        usedNames.add(zipName);
+        archive.append(csv, { name: zipName });
+        totalAdded++;
+      }
+    }
+
+    await archive.finalize();
+  } catch (error) {
+    console.error('ZIP download error:', error);
+    if (!res.headersSent) {
+      const status = error.statusCode || 500;
+      res.status(status).json({
+        success: false,
+        message: error.message || 'Error generating ZIP file',
+      });
+    } else {
+      try {
+        res.end();
+      } catch {}
+    }
+  }
 };
 
 exports.uploadFormatData = (req, res) => {
