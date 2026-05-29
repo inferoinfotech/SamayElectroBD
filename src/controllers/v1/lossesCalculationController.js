@@ -204,6 +204,207 @@ function getTimeStr(entry) {
   );
 }
 
+/**
+ * Main-client HELPER + grossInjectedUnitsTotal (Excel HELPER + Losses Calc col D/F).
+ * 1) raw = meterSum × mf × pn / 1000
+ * 2) grossLet = iterative LET(s, p, n, f, … × MAIN ENTRY B9/L9)
+ * 3) sldcScaled = raw × pos/neg factor (MAIN ENTRY C9/L9 vs sum of raw)
+ * 4) capped = cap grossLet to (acCapacityKw/1000)/4×105%; grossInjectedUnitsTotal = capped
+ */
+function applyMainClientHelperPipeline(rows, opts) {
+  const {
+    mainMf,
+    mainPn,
+    approvedInjection,
+    approvedDrawl,
+    acCapacityKw,
+  } = opts;
+
+  const k = (mainMf * mainPn) / 1000;
+  const injApproved = approvedInjection ?? 0;
+  const drwApproved = approvedDrawl ?? 0;
+  const threshold = ((acCapacityKw || 0) / 1000 / 4) * 1.05;
+
+  for (const row of rows) {
+    row.helper = row.helper || {};
+    row.helper.raw = row.meterActiveSum * k;
+    row.helper.grossLet = row.helper.raw;
+  }
+
+  const maxIter = 25;
+  for (let iter = 0; iter < maxIter; iter++) {
+    let p = 0;
+    let n = 0;
+    for (const row of rows) {
+      const d = row.helper.grossLet ?? 0;
+      if (d > 0) p += d;
+      else if (d < 0) n += d;
+    }
+
+    let maxDelta = 0;
+    for (const row of rows) {
+      const s = row.meterActiveSum;
+      let f = 0;
+      if (s <= 0) {
+        f = p === 0 ? 0 : 1 + (injApproved - p) / p;
+      } else {
+        f = n === 0 ? 0 : 1 + (drwApproved - n) / n;
+      }
+      const next = s * f * k;
+      maxDelta = Math.max(maxDelta, Math.abs((row.helper.grossLet ?? 0) - next));
+      row.helper.grossLet = next;
+    }
+    if (maxDelta < 1e-9) break;
+  }
+
+  let pRaw = 0;
+  let nRaw = 0;
+  for (const row of rows) {
+    const r = row.helper.raw ?? 0;
+    if (r > 0) pRaw += r;
+    else if (r < 0) nRaw += r;
+  }
+  const posFactor = pRaw === 0 ? 1 : injApproved / pRaw;
+  const negFactor = nRaw === 0 ? 1 : drwApproved / nRaw;
+
+  let mainGrossAdj = 0;
+  let mainDrawlAdj = 0;
+  let mainRawPos = 0;
+  let mainRawNeg = 0;
+
+  for (const row of rows) {
+    const raw = row.helper.raw ?? 0;
+    if (raw > 0) mainRawPos += raw;
+    else mainRawNeg += raw;
+
+    const scaled = raw > 0 ? raw * posFactor : raw * negFactor;
+    row.helper.sldcScaled = scaled;
+    row.helper.discomScaled = scaled;
+
+    const d18 = row.helper.grossLet ?? 0;
+    const capped = d18 > threshold ? d18 + (threshold - d18) : d18;
+    row.helper.capped = capped;
+    row.grossInjectedUnitsTotal = capped;
+
+    if (capped > 0) mainGrossAdj += capped;
+    else mainDrawlAdj += capped;
+  }
+
+  return {
+    mainGrossAdj,
+    mainDrawlAdj,
+    mainRawPos,
+    mainRawNeg,
+    threshold,
+    posFactor,
+    negFactor,
+  };
+}
+
+/** Cap interval value to (acCapacityKw/1000)/4 × 105% (SUMMARY F19-style). */
+function capToAcBlockLimit(value, acCapacityKw) {
+  const threshold = ((acCapacityKw || 0) / 1000 / 4) * 1.05;
+  if (value > threshold) return value + (threshold - value);
+  return value;
+}
+
+/**
+ * Sub-client HELPER cols 1–4 (per sub, then cross-sub allocation).
+ * 1) raw = SUMIFS(L) × -(sub MF/1000)
+ * 2) grossLet (=G) → capped (=F): cap grossLet to sub AC block limit
+ * 3) allocatedGroup (=I): adj = H+H/s×(F−s), sign from F; s = sum raw all subs
+ * 4) discomScaled: H>0 → I/posF×posE, else H
+ */
+function applySubClientHelperPipeline(subClientBlocks) {
+  // Col 1–2 per sub-client
+  for (const sc of subClientBlocks) {
+    const rows = sc.subClientsData.subClientMeterData;
+    for (const row of rows) {
+      row.helper = row.helper || {};
+      row.helper.grossLet = row.helper.raw ?? 0;
+      row.helper.capped = capToAcBlockLimit(
+        row.helper.grossLet,
+        sc.acCapacityKw
+      );
+    }
+  }
+
+  // Col 3 — allocatedGroup across all subs per interval
+  const groups = new Map();
+  for (const sc of subClientBlocks) {
+    for (const row of sc.subClientsData.subClientMeterData) {
+      const key = `${row.date}__${row.time}`;
+      let g = groups.get(key);
+      if (!g) {
+        g = { sumRaw: 0, entries: [] };
+        groups.set(key, g);
+      }
+      const raw = row.helper?.raw ?? 0;
+      g.sumRaw += raw;
+      g.entries.push(row);
+    }
+  }
+
+  groups.forEach((g) => {
+    const s = g.sumRaw;
+    for (const row of g.entries) {
+      const raw = row.helper?.raw ?? 0;
+      const f = row.helper?.capped ?? 0;
+      if (!Number.isFinite(s) || s === 0) {
+        row.helper.allocatedGroup = 0;
+        continue;
+      }
+      const adj = raw + (raw / s) * (f - s);
+      row.helper.allocatedGroup = f >= 0 ? Math.abs(adj) : -Math.abs(adj);
+    }
+  });
+
+  // Col 4 — discomScaled per sub-client
+  for (const sc of subClientBlocks) {
+    const rows = sc.subClientsData.subClientMeterData;
+    let posE = 0;
+    let posF = 0;
+    for (const row of rows) {
+      const h = row.helper?.raw ?? 0;
+      const i = row.helper?.allocatedGroup ?? 0;
+      if (h > 0) {
+        posE += h;
+        posF += i;
+      }
+    }
+    for (const row of rows) {
+      const h = row.helper?.raw ?? 0;
+      const i = row.helper?.allocatedGroup ?? 0;
+      if (h > 0) {
+        row.helper.discomScaled =
+          posF !== 0 ? (i / posF) * posE : h;
+      } else {
+        row.helper.discomScaled = h;
+      }
+    }
+  }
+}
+
+/**
+ * Losses Calculation Sheet interval semantics (not Excel column letters):
+ * - grossReceivedAtSS (HELPER col J, was G) → discomScaled → grossInjectedUnitsTotal
+ * - net-after-losses base (was G18, now F18) → capped
+ */
+function applySubClientLossesSheetIntervals(rows, subClientsData) {
+  const injPct = subClientsData.inPercentageOfLossesInjectedUnits ?? 0;
+  const drwPct = subClientsData.inPercentageOfLossesDrawlUnits ?? 0;
+
+  for (const row of rows) {
+    const grossReceivedAtSS = row.helper?.discomScaled ?? 0;
+    row.grossInjectedUnitsTotal = grossReceivedAtSS;
+
+    const baseForLosses = row.helper?.capped ?? grossReceivedAtSS;
+    const lossPct = baseForLosses > 0 ? injPct : drwPct;
+    row.netTotalAfterLosses =
+      baseForLosses - (lossPct / 100) * baseForLosses;
+  }
+}
+
 // ---------- Controller ----------
 const generateLossesCalculation = async (req, res) => {
   try {
@@ -388,33 +589,52 @@ const generateLossesCalculation = async (req, res) => {
       audit: {},
     });
 
-    // MAIN raw
+    // MAIN client — HELPER cols (raw / grossLet / sldcScaled / capped) + gross = capped (F col)
     const mainPn = Number.isFinite(mainClientData.pn) ? mainClientData.pn : -1;
     const mainMf = Number.isFinite(mainClientData.mf) ? mainClientData.mf : 1;
 
-    let mainRawPos = 0;
-    let mainRawNeg = 0;
-
+    const mainIntervalMap = new Map();
     mainClientMeterData.forEach((m) => {
       m.dataEntries.forEach((e) => {
-        const aE = getActiveEnergy(e);
-        if (!Number.isFinite(aE)) return;
-        const vRaw = (aE * mainMf * mainPn) / 1000;
         const date = getDateStr(e);
         const time = getTimeStr(e);
-
-        doc.mainClient.mainClientMeterDetails.push({
-          date,
-          time,
-          grossInjectedUnitsTotal: vRaw,
-          helper: { raw: vRaw },
-        });
-
-        if (vRaw > 0) mainRawPos += vRaw;
-        else mainRawNeg += vRaw;
+        if (!date || !time) return;
+        const key = `${date}__${time}`;
+        if (!mainIntervalMap.has(key)) {
+          mainIntervalMap.set(key, { date, time, meterActiveSum: 0 });
+        }
+        const aE = getActiveEnergy(e);
+        if (Number.isFinite(aE)) {
+          mainIntervalMap.get(key).meterActiveSum += aE;
+        }
       });
     });
-    doc.audit.mainRaw = { pos: mainRawPos, neg: mainRawNeg };
+
+    const mainMeterRows = Array.from(mainIntervalMap.values());
+    const mainHelperResult = applyMainClientHelperPipeline(mainMeterRows, {
+      mainMf,
+      mainPn,
+      approvedInjection,
+      approvedDrawl,
+      acCapacityKw: mainClientData.acCapacityKw,
+    });
+
+    doc.mainClient.mainClientMeterDetails = mainMeterRows.map((row) => ({
+      date: row.date,
+      time: row.time,
+      grossInjectedUnitsTotal: row.grossInjectedUnitsTotal,
+      helper: row.helper,
+    }));
+
+    doc.audit.mainRaw = {
+      pos: mainHelperResult.mainRawPos,
+      neg: mainHelperResult.mainRawNeg,
+    };
+    doc.audit.mainHelper = {
+      threshold: mainHelperResult.threshold,
+      posFactor: mainHelperResult.posFactor,
+      negFactor: mainHelperResult.negFactor,
+    };
 
     // SUBS raw + helper.raw
     for (const s of subClients) {
@@ -477,28 +697,38 @@ const generateLossesCalculation = async (req, res) => {
         }));
       }
 
+      const subIntervalMap = new Map();
       data.forEach((m) => {
         m.dataEntries.forEach((e) => {
-          const aE = getActiveEnergy(e);
-          if (!Number.isFinite(aE)) return;
-
-          const v = (aE * sMf * sPn) / 1000;
           const date = getDateStr(e);
           const time = getTimeStr(e);
-
-          subBlock.subClientsData.subClientMeterData.push({
-            date,
-            time,
-            grossInjectedUnitsTotal: v,
-            netTotalAfterLosses: 0,
-            partclient: [],
-            helper: { raw: v },
-          });
-
-          if (v > 0) subBlock.subClientsData.grossInjectionMWH += v;
-          else subBlock.subClientsData.drawlMWH += v;
+          if (!date || !time) return;
+          const key = `${date}__${time}`;
+          if (!subIntervalMap.has(key)) {
+            subIntervalMap.set(key, { date, time, meterActiveSum: 0 });
+          }
+          const aE = getActiveEnergy(e);
+          if (Number.isFinite(aE)) {
+            subIntervalMap.get(key).meterActiveSum += aE;
+          }
         });
       });
+
+      const kSub = (sMf * sPn) / 1000;
+      for (const interval of subIntervalMap.values()) {
+        const v = interval.meterActiveSum * kSub;
+        subBlock.subClientsData.subClientMeterData.push({
+          date: interval.date,
+          time: interval.time,
+          grossInjectedUnitsTotal: v,
+          netTotalAfterLosses: 0,
+          partclient: [],
+          helper: { raw: v },
+        });
+
+        if (v > 0) subBlock.subClientsData.grossInjectionMWH += v;
+        else subBlock.subClientsData.drawlMWH += v;
+      }
 
       subBlock.subClientsData.netInjectionMWH =
         subBlock.subClientsData.grossInjectionMWH +
@@ -511,156 +741,51 @@ const generateLossesCalculation = async (req, res) => {
         subBlock.subClientsData.drawlMWH;
     }
 
-    // MAIN scaling by SLDC (fPos / fNeg)
-    let fPos = 1;
-    let fNeg = 1;
-    if (approvedInjection != null && mainRawPos !== 0)
-      fPos = approvedInjection / mainRawPos;
-    if (approvedDrawl != null && mainRawNeg !== 0)
-      fNeg = approvedDrawl / mainRawNeg;
+    doc.mainClient.grossInjectionMWH = mainHelperResult.mainGrossAdj;
+    doc.mainClient.drawlMWH = mainHelperResult.mainDrawlAdj;
+    doc.mainClient.netInjectionMWH =
+      mainHelperResult.mainGrossAdj + mainHelperResult.mainDrawlAdj;
 
-    doc.audit.mainScale = { fPos, fNeg };
+    doc.audit.subsPositiveSumRaw = doc.subClientoverall.overallGrossInjectedUnits;
+    doc.audit.subsNegativeSumRaw = doc.subClientoverall.grossDrawlUnits;
 
-    let mainGrossAdj = 0;
-    let mainDrawlAdj = 0;
-    doc.mainClient.mainClientMeterDetails =
-      doc.mainClient.mainClientMeterDetails.map((row) => {
-        const v = row.helper?.raw ?? row.grossInjectedUnitsTotal;
-        const adj = v > 0 ? v * fPos : v * fNeg;
-        const next = { ...row, grossInjectedUnitsTotal: adj };
-        if (adj > 0) mainGrossAdj += adj;
-        else mainDrawlAdj += adj;
-        return next;
+    applySubClientHelperPipeline(doc.subClient);
+
+    // Losses sheet: grossInjectedUnitsTotal = HELPER J (discomScaled); monthly sums from that
+    doc.subClient.forEach((sc) => {
+      const d = sc.subClientsData;
+      let gross = 0;
+      let drawl = 0;
+      d.subClientMeterData.forEach((row) => {
+        const v = row.helper?.discomScaled ?? 0;
+        row.grossInjectedUnitsTotal = v;
+        if (v > 0) gross += v;
+        else drawl += v;
       });
-    doc.mainClient.grossInjectionMWH = mainGrossAdj;
-    doc.mainClient.drawlMWH = mainDrawlAdj;
-    doc.mainClient.netInjectionMWH = mainGrossAdj + mainDrawlAdj;
+      d.grossInjectionMWH = gross;
+      d.drawlMWH = drawl;
+      d.netInjectionMWH = gross + drawl;
+    });
 
-    // Differences main vs subs (raw on subs)
+    doc.subClientoverall.overallGrossInjectedUnits = doc.subClient.reduce(
+      (a, s) => a + s.subClientsData.grossInjectionMWH,
+      0
+    );
+    doc.subClientoverall.grossDrawlUnits = doc.subClient.reduce(
+      (a, s) => a + s.subClientsData.drawlMWH,
+      0
+    );
+
     doc.difference.diffInjectedUnits =
       doc.subClientoverall.overallGrossInjectedUnits -
       doc.mainClient.grossInjectionMWH;
     doc.difference.diffDrawlUnits =
       doc.subClientoverall.grossDrawlUnits - doc.mainClient.drawlMWH;
 
-    // Monthly sums (raw)
-    const overallPos = doc.subClient.reduce(
-      (a, s) => a + s.subClientsData.grossInjectionMWH,
-      0
-    );
-    const overallNeg = doc.subClient.reduce(
-      (a, s) => a + s.subClientsData.drawlMWH,
-      0
-    );
+    const overallPos = doc.subClientoverall.overallGrossInjectedUnits;
+    const overallNeg = doc.subClientoverall.grossDrawlUnits;
     doc.audit.subsPositiveSum = overallPos;
     doc.audit.subsNegativeSum = overallNeg;
-
-    // ----- helper.allocatedGroup: interval allocation per main step -----
-    const mainByKey = new Map();
-    doc.mainClient.mainClientMeterDetails.forEach((row) => {
-      const key = `${row.date}__${row.time}`;
-      mainByKey.set(key, row.grossInjectedUnitsTotal);
-    });
-
-    const groups = new Map();
-    doc.subClient.forEach((sc) => {
-      sc.subClientsData.subClientMeterData.forEach((row) => {
-        const key = `${row.date}__${row.time}`;
-        let g = groups.get(key);
-        if (!g) {
-          g = { sumRaw: 0, rows: [] };
-          groups.set(key, g);
-        }
-        const raw = row.helper?.raw ?? row.grossInjectedUnitsTotal;
-        g.sumRaw += raw;
-        g.rows.push(row);
-      });
-    });
-
-    groups.forEach((g, key) => {
-      const s = g.sumRaw;
-      const target = mainByKey.get(key);
-
-      if (!Number.isFinite(s) || s === 0 || !Number.isFinite(target)) {
-        g.rows.forEach((row) => {
-          const raw = row.helper?.raw ?? row.grossInjectedUnitsTotal;
-          row.helper = row.helper || {};
-          row.helper.allocatedGroup = raw;
-          row.helper.discomScaled = raw;
-        });
-        return;
-      }
-
-      let sumAlloc = 0;
-      g.rows.forEach((row) => {
-        const raw = row.helper?.raw ?? row.grossInjectedUnitsTotal;
-        const alloc = raw + (raw / s) * (target - s);
-        row.helper = row.helper || {};
-        row.helper.allocatedGroup = alloc;
-        sumAlloc += alloc;
-      });
-
-      const delta = target - sumAlloc;
-      if (g.rows.length && Number.isFinite(delta) && Math.abs(delta) > 0) {
-        g.rows[0].helper.allocatedGroup += delta;
-      }
-    });
-
-    // ----- helper.discomScaled: per-sub scaling so sum(discomScaled) == sum(raw) -----
-    doc.subClient.forEach((sc) => {
-      const rows = sc.subClientsData.subClientMeterData;
-
-      let posE = 0;
-      let posF = 0;
-      const positiveRows = [];
-
-      rows.forEach((row) => {
-        const raw = row.helper?.raw ?? row.grossInjectedUnitsTotal;
-        const alloc =
-          row.helper?.allocatedGroup ??
-          row.helper?.raw ??
-          row.grossInjectedUnitsTotal;
-        if (raw > 0) {
-          posE += raw;
-          positiveRows.push(row);
-        }
-        if (alloc > 0) posF += alloc;
-      });
-
-      const scale = posF !== 0 ? posE / posF : 1;
-
-      let sumScaled = 0;
-      positiveRows.forEach((row) => {
-        const alloc =
-          row.helper?.allocatedGroup ??
-          row.helper?.raw ??
-          row.grossInjectedUnitsTotal;
-        const scaled = alloc * scale;
-        row.helper.discomScaled = scaled;
-        sumScaled += scaled;
-      });
-
-      if (positiveRows.length && posE !== 0) {
-        const delta = posE - sumScaled;
-        positiveRows[0].helper.discomScaled += delta;
-      }
-
-      rows.forEach((row) => {
-        const raw = row.helper?.raw ?? row.grossInjectedUnitsTotal;
-        if (!(raw > 0)) {
-          row.helper.discomScaled = raw;
-        }
-      });
-    });
-
-    // Update grossInjectedUnitsTotal to use discomScaled for sub clients
-    doc.subClient.forEach((sc) => {
-      sc.subClientsData.subClientMeterData.forEach((row) => {
-        if (row.helper && row.helper.discomScaled !== undefined) {
-          row.grossInjectedUnitsTotal = row.helper.discomScaled;
-        }
-      });
-    });
 
     // ----- Loss percentages & first pass after-losses -----
     doc.subClient.forEach((sc) => {
@@ -704,21 +829,15 @@ const generateLossesCalculation = async (req, res) => {
       }
     });
 
-    // First pass: per-row net after losses from percentages
+    // Per-interval net after losses: base = capped (Excel F18); Total col = discomScaled (HELPER J)
     doc.subClient.forEach((sc) => {
       const d = sc.subClientsData;
+      applySubClientLossesSheetIntervals(d.subClientMeterData, d);
+
       let gAfter = 0;
       let dAfter = 0;
-
       d.subClientMeterData.forEach((row) => {
-        const v = row.grossInjectedUnitsTotal;
-        const lossPct =
-          v > 0
-            ? d.inPercentageOfLossesInjectedUnits
-            : d.inPercentageOfLossesDrawlUnits;
-        const after = ((v * (lossPct / 100)) - v) * -1;
-        row.netTotalAfterLosses = after;
-
+        const after = row.netTotalAfterLosses ?? 0;
         if (after > 0) gAfter += after;
         else dAfter += after;
       });

@@ -7,9 +7,12 @@ const mongoose = require('mongoose');
  */
 const HelperAuditSchema = new mongoose.Schema(
   {
-    raw: { type: Number },            // helper col-1 equivalent (I_E * mf * pn / 1000)
-    allocatedGroup: { type: Number }, // placeholder if you later add time-slice allocation
-    discomScaled: { type: Number },   // after monthly DISCOM scaling (feeds losses)
+    raw: { type: Number },            // helper col-1: SUMIFS(active) * -(mf/1000) [× pn]
+    grossLet: { type: Number },       // main HELPER col-D / Losses Calc col-D (LET + MAIN ENTRY)
+    capped: { type: Number },         // main HELPER col-F (cap vs AC capacity / 4 × 105%)
+    allocatedGroup: { type: Number }, // sub col-3: ABS(adj) signed by capped F
+    discomScaled: { type: Number },   // sub col-4: I/posF×posE; main: SLDC on raw
+    sldcScaled: { type: Number },     // alias kept for main col-3 (same as discomScaled on main)
   },
   { _id: false }
 );
@@ -26,8 +29,8 @@ const SubClientMeterRowSchema = new mongoose.Schema(
   {
     date: { type: String, required: true },
     time: { type: String, required: true },
-    grossInjectedUnitsTotal: { type: Number, required: true }, // signed MWh (+ inj, - drawl)
-    netTotalAfterLosses: { type: Number }, // signed MWh after losses
+    grossInjectedUnitsTotal: { type: Number, required: true }, // Losses sheet Total: HELPER discomScaled (col J)
+    netTotalAfterLosses: { type: Number }, // from helper.capped × loss % (Losses sheet F18 formula)
     partclient: [PartClientMeterRowSchema],
     helper: { type: HelperAuditSchema },   // optional audit
   },
@@ -117,7 +120,8 @@ const MainClientMeterRowSchema = new mongoose.Schema(
   {
     date: { type: String, required: true },
     time: { type: String, required: true },
-    grossInjectedUnitsTotal: { type: Number, required: true }, // signed MWh (+ inj, - drawl)
+    grossInjectedUnitsTotal: { type: Number, required: true }, // final: HELPER col-F (capped)
+    helper: { type: HelperAuditSchema },
   },
   { _id: false }
 );
