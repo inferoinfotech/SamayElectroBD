@@ -637,6 +637,15 @@ function rowHasAnyCFData(row) {
   return ['unitsInKwh', 'rate', 'creditAmount', 'debitAmount'].some((k) => hasValueForExcel(row[k]));
 }
 
+/** Section 3.3 captive wheeling debit (e.g. 4605.95) — only this debit is italic in export */
+function isCaptiveWheelingExportRow(row, particulars, srNo) {
+  const sr = String(srNo ?? row?.id ?? '').trim();
+  if (sr === '3.3') return true;
+  if (row && (row.policyKey === 'captiveWheeling' || row.id === '3.3')) return true;
+  const p = String(particulars || (row && row.particulars) || '').toLowerCase();
+  return p.includes('wheeling') && p.includes('captive');
+}
+
 function applyCellStyle(cell, opts = {}) {
   const font = { name: 'Times New Roman', size: opts.size || 10, bold: !!opts.bold, italic: !!opts.italic };
   if (opts.fontColor) font.color = { argb: opts.fontColor };
@@ -718,10 +727,8 @@ function buildUnitCreditExcelCombined(clientName, solarLabelsJoined, adjustmentL
   const srNoMap = { '1.1': 'A', '1.2': 'B', '1.3': 'C', '1.4': 'D', '1.9': 'F', '1.10': 'G' };
 
   let rowNum = 1;
-  ws.getRow(rowNum).height = 15;
-  rowNum++;
 
-  // Row 2: FINAL SUMMARY SHEET | Client name
+  // Row 1: FINAL SUMMARY SHEET | Client name
   ws.mergeCells(`A${rowNum}:B${rowNum}`);
   const r2a = ws.getCell(`A${rowNum}`);
   r2a.value = 'FINAL SUMMARY SHEET';
@@ -734,7 +741,7 @@ function buildUnitCreditExcelCombined(clientName, solarLabelsJoined, adjustmentL
   ws.getRow(rowNum).height = 45;
   rowNum++;
 
-  // Row 3: SOLAR GENRATION MONTH | label(s)
+  // Row 2: SOLAR GENRATION MONTH | label(s)
   ws.mergeCells(`A${rowNum}:B${rowNum}`);
   ws.getCell(`A${rowNum}`).value = 'SOLAR GENRATION MONTH';
   applyCellStyle(ws.getCell(`A${rowNum}`), { bold: true, size: 14, horizontal: 'center', fill: 'FFFF00', fontColor: 'FF0000' });
@@ -820,7 +827,8 @@ function buildUnitCreditExcelCombined(clientName, solarLabelsJoined, adjustmentL
 
       if (options.italicNumeric && (i >= 3 && i <= 5) && val !== '') {
         cellBold = false;
-        cellItalic = (i !== 3); // keep rate non-italic
+        // Debit (i=5): only captive wheeling 3.3 italic — handled below
+        cellItalic = i === 4;
       }
 
       if (options.colStyles && options.colStyles[i]) {
@@ -835,8 +843,22 @@ function buildUnitCreditExcelCombined(clientName, solarLabelsJoined, adjustmentL
       if (i === 3) cellItalic = false;
       if (i === 5) {
         const pStr = typeof particulars === 'string' ? particulars : (particulars && particulars.richText ? particulars.richText.map(rt => rt.text).join('') : '');
-        if (!pStr.includes('Maxi.30% Eligible for Set-Off Banked Energy')) {
+        const srForRow = typeof srNo === 'string' || typeof srNo === 'number' ? srNo : '';
+        if (options.italicNumeric && val !== '') {
+          cellBold = false;
+          cellItalic = isCaptiveWheelingExportRow(null, pStr, srForRow);
+        } else if (!pStr.includes('Maxi.30% Eligible for Set-Off Banked Energy')) {
           cellItalic = false;
+        }
+      }
+
+      // Remark column: normal (not bold), italic when value present
+      if (i === 6) {
+        cellBold = options.colStyles?.[6]?.bold === true;
+        if (options.colStyles?.[6]?.italic !== undefined) {
+          cellItalic = options.colStyles[6].italic;
+        } else {
+          cellItalic = val !== '';
         }
       }
 
@@ -1065,7 +1087,12 @@ function buildUnitCreditExcelCombined(clientName, solarLabelsJoined, adjustmentL
 
     const rows = Array.isArray(t.section3) ? t.section3 : [];
     rows.forEach((r) => {
-      writeRow(r.id || '', r.particulars || '', r.unitsInKwh, r.rate, r.creditAmount, r.debitAmount, r.remark, { bold: false });
+      writeRow(r.id || '', r.particulars || '', r.unitsInKwh, r.rate, r.creditAmount, r.debitAmount, r.remark, {
+        bold: false,
+        italicNumeric: true,
+        rateTwoDecimals: true,
+        colStyles: { 2: { bold: true, italic: false } },
+      });
       if (r.showElectricityDuty && r.subRows?.electricityDuty) {
         writeRow(`${r.id}.1`, 'Electricity Duty', r.subRows.electricityDuty.unitsInKwh, r.subRows.electricityDuty.rate, r.subRows.electricityDuty.creditAmount, r.subRows.electricityDuty.debitAmount, r.subRows.electricityDuty.remark, {});
       }
@@ -1232,11 +1259,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
 
   let rowNum = 1;
 
-  // Row 1: empty
-  ws.getRow(rowNum).height = 15;
-  rowNum++;
-
-  // Row 2: FINAL SUMMARY SHEET | Client name
+  // Row 1: FINAL SUMMARY SHEET | Client name
   ws.mergeCells(`A${rowNum}:B${rowNum}`);
   const r2a = ws.getCell(`A${rowNum}`);
   r2a.value = 'FINAL SUMMARY SHEET';
@@ -1248,7 +1271,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
   ws.getRow(rowNum).height = 45;
   rowNum++;
 
-  // Row 3: SOLAR GENRATION MONTH | value (light peach, value in red)
+  // Row 2: SOLAR GENRATION MONTH | value (light peach, value in red)
   ws.mergeCells(`A${rowNum}:B${rowNum}`);
   ws.getCell(`A${rowNum}`).value = 'SOLAR GENRATION MONTH';
   applyCellStyle(ws.getCell(`A${rowNum}`), { bold: true, size: 14, horizontal: 'center', fill: 'FFFF00', fontColor: 'FF0000' });
@@ -1326,11 +1349,10 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
       let cellFontColor = fontColor;
       let cellFill = fill;
 
-      // New requirement: Rate, Credit, and Debit columns should be italic not bold
-      // Units in kwh (index 2) should remain as is (bold).
+      // Rate/Credit italic when italicNumeric; debit italic only for captive wheeling 3.3 (4605.95)
       if (options.italicNumeric && (i >= 3 && i <= 5) && val !== '') {
         cellBold = false;
-        cellItalic = (i !== 3); // Rate (i=3) is no longer italic, only Credit (4) and Debit (5) are
+        cellItalic = i === 4;
       }
 
       // Individual Column/Cell Overrides
@@ -1348,11 +1370,24 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
         cellItalic = false;
       }
 
-      // Explicitly remove italic for Debit Amount column, EXCEPT for F16 (item 1.8)
       if (i === 5) {
         const pStr = typeof particulars === 'string' ? particulars : (particulars && particulars.richText ? particulars.richText.map(rt => rt.text).join('') : '');
-        if (!pStr.includes('Maxi.30% Eligible for Set-Off Banked Energy')) {
+        const srForRow = typeof srNo === 'string' || typeof srNo === 'number' ? srNo : '';
+        if (options.italicNumeric && val !== '') {
+          cellBold = false;
+          cellItalic = isCaptiveWheelingExportRow(null, pStr, srForRow);
+        } else if (!pStr.includes('Maxi.30% Eligible for Set-Off Banked Energy')) {
           cellItalic = false;
+        }
+      }
+
+      // Remark column: normal (not bold), italic when value present
+      if (i === 6) {
+        cellBold = options.colStyles?.[6]?.bold === true;
+        if (options.colStyles?.[6]?.italic !== undefined) {
+          cellItalic = options.colStyles[6].italic;
+        } else {
+          cellItalic = val !== '';
         }
       }
 
