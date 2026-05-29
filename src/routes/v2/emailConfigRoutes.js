@@ -1,8 +1,36 @@
 // emailConfigRoutes.js
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
 const router = express.Router();
+const multer = require('multer');
 const emailConfigController = require('../../controllers/v2/emailConfigController');
+const emailDirectoryController = require('../../controllers/v2/emailDirectoryController');
 const { verifyToken } = require('../../middleware/v1/authMiddleware');
+
+const directoryUploadDir = 'uploads/email-directory';
+if (!fs.existsSync(directoryUploadDir)) {
+  fs.mkdirSync(directoryUploadDir, { recursive: true });
+}
+
+const directoryStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, directoryUploadDir),
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  },
+});
+
+const directoryUpload = multer({
+  storage: directoryStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowed = ['.csv', '.xlsx', '.xls', '.cdf', '.dlm'];
+    if (allowed.includes(ext)) return cb(null, true);
+    cb(new Error('Only CSV, CDF/DLM, and Excel files are allowed'));
+  },
+}).single('file');
 
 // All routes require authentication
 router.use(verifyToken);
@@ -39,5 +67,11 @@ router.put('/config/:configType/template', emailConfigController.updateTemplate)
 
 // Reset configuration to default template
 router.post('/config/:configType/reset', emailConfigController.resetConfigToDefault);
+
+// Email directory (global contact list for To/CC suggestions)
+router.get('/directory', emailDirectoryController.getDirectory);
+router.get('/directory/search', emailDirectoryController.searchDirectory);
+router.put('/directory/entries', emailDirectoryController.saveDirectoryEntries);
+router.post('/directory/upload', directoryUpload, emailDirectoryController.uploadDirectory);
 
 module.exports = router;
