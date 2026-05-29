@@ -174,6 +174,7 @@ const parseRowsFromWorkbook = (filePath) => {
   return entries;
 };
 
+/** Keep first occurrence per email (use after reversing file rows so last row in file is first). */
 const dedupeEntries = (entries) => {
   const map = new Map();
   for (const entry of entries) {
@@ -182,6 +183,9 @@ const dedupeEntries = (entries) => {
   }
   return Array.from(map.values());
 };
+
+/** Newest / last-in-file contacts appear at the top of the list. */
+const orderNewestFirst = (entries) => dedupeEntries([...entries].reverse());
 
 exports.getDirectory = async (req, res) => {
   try {
@@ -267,7 +271,7 @@ exports.uploadDirectory = async (req, res) => {
 
   try {
     const parsed = parseRowsFromWorkbook(req.file.path);
-    const entries = dedupeEntries(parsed);
+    const entries = orderNewestFirst(parsed);
 
     const doc = await EmailDirectory.findOneAndUpdate(
       { key: 'global' },
