@@ -971,6 +971,21 @@ exports.sendGeneralEmail = async (req, res) => {
 
         await transporter.sendMail(mailOptions);
 
+        // Mark as sent in DB so analytics stays accurate even if frontend skip update call
+        if (clientId && year && month) {
+            await GeneralEmailFile.findOneAndUpdate(
+                {
+                    clientId,
+                    year: parseInt(year, 10),
+                    month: parseInt(month, 10),
+                },
+                {
+                    lastEmailSentAt: new Date(),
+                    $inc: { emailSentCount: 1 },
+                }
+            );
+        }
+
         // Clean up temporary downloaded files
         for (const tempFile of tempDownloadedFiles) {
             if (fs.existsSync(tempFile)) {
@@ -1271,6 +1286,255 @@ exports.updateGeneralEmailSent = async (req, res) => {
         });
     } catch (error) {
         logger.error(`Error updating email sent timestamp: ${error.message}`);
+        res.status(500).json({ message: error.message });
+    }
+};
+
+function isTruthyMailSent(value) {
+    return value === true || value === 1 || String(value).toLowerCase() === 'true';
+}
+
+function findConfigClientForAnalytics(client, configClients) {
+    if (!client || !configClients?.length) return null;
+    const clientIdStr = String(client._id);
+    return configClients.find((c) => {
+        const configId = (c.clientId?._id || c.clientId)?.toString();
+        if (configId && configId === clientIdStr) return true;
+        return (
+            c.clientName &&
+            client.name &&
+            c.clientName.trim() === client.name.trim()
+        );
+    });
+}
+
+function buildWeeklyMonthlyAnalytics(clients, batch, config) {
+    const configClients = config?.recipients?.clients || [];
+    const recipients = batch?.recipients || [];
+    const uploadedFiles = batch?.uploadedFiles || [];
+
+    // Match batch recipients the same way as Weekly/Monthly tabs (clientId + exact name)
+    const byClientId = new Map();
+    const byName = new Map();
+
+    for (const r of recipients) {
+        const id = r.mainClientId?._id || r.mainClientId;
+        if (id) byClientId.set(String(id), r);
+        if (r.mainClientName) {
+            byName.set(String(r.mainClientName).trim(), r);
+        }
+    }
+
+    const buildRow = (client, match, configClient) => {
+        const hasData = !!match;
+        const mailSent = match ? isTruthyMailSent(match.mailSent) : false;
+        const error = match?.error || null;
+        let status = 'noData';
+        if (hasData) {
+            if (mailSent) status = 'sent';
+            else if (error) status = 'failed';
+            else status = 'notSent';
+        }
+
+        const ccEmails = configClient?.ccEmails || [];
+        const configEmail = configClient?.email || '';
+
+        return {
+            clientId: client._id,
+            clientName: client.name,
+            meterNumber:
+                match?.meterNumber ||
+                client?.abtMainMeter?.meterNumber ||
+                client?.abtCheckMeter?.meterNumber ||
+                'N/A',
+            hasData,
+            mailSent,
+            sentAt: match?.sentAt || null,
+            error,
+            hasEmail: !!(
+                configEmail &&
+                configEmail !== 'No email' &&
+                String(configEmail).includes('@')
+            ),
+            configEmail,
+            ccEmails: ccEmails.map((cc) => ({
+                email: cc.email,
+                name: cc.name || '',
+            })),
+            ccCount: ccEmails.length,
+            csvCheck: !!match?.csvCheck,
+            cdfCheck: !!match?.cdfCheck,
+            batchId: batch?._id || null,
+            recipientId: match?._id || null,
+            status,
+        };
+    };
+
+    const clientRows = clients.map((client) => {
+        const configClient = findConfigClientForAnalytics(client, configClients);
+        const match =
+            byClientId.get(String(client._id)) ||
+            (client.name && byName.get(String(client.name).trim())) ||
+            null;
+
+        return buildRow(client, match, configClient);
+    });
+
+    const sent = clientRows.filter((c) => c.status === 'sent').length;
+    const notSent = clientRows.filter((c) => c.status === 'notSent').length;
+    const noData = clientRows.filter((c) => c.status === 'noData').length;
+    const failed = clientRows.filter((c) => c.status === 'failed').length;
+    const withData = sent + notSent + failed;
+
+    return {
+        batchId: batch?._id || null,
+        batchStatus: batch?.status || null,
+        batchRecipientCount: recipients.length,
+        totals: {
+            sent,
+            notSent,
+            noData,
+            failed,
+            withData,
+            total: clientRows.length,
+        },
+        clients: clientRows,
+        uploadedFiles,
+    };
+}
+
+function buildGeneralAnalytics(clients, generalRecords, config) {
+    const configClients = config?.recipients?.clients || [];
+    const generalByClientId = {};
+    const generalByName = {};
+
+    for (const record of generalRecords) {
+        const id = record.clientId?.toString?.() || String(record.clientId);
+        if (!generalByClientId[id]) {
+            generalByClientId[id] = record;
+        } else {
+            generalByClientId[id].files = [
+                ...(generalByClientId[id].files || []),
+                ...(record.files || []),
+            ];
+            if (record.lastEmailSentAt) {
+                generalByClientId[id].lastEmailSentAt = record.lastEmailSentAt;
+            }
+        }
+        if (record.clientName) {
+            generalByName[String(record.clientName).trim().toLowerCase()] = generalByClientId[id];
+        }
+    }
+
+    const clientRows = clients.map((client) => {
+        const configClient = findConfigClientForAnalytics(client, configClients);
+        const record =
+            generalByClientId[String(client._id)] ||
+            (client.name && generalByName[String(client.name).trim().toLowerCase()]) ||
+            null;
+
+        const fileCount = record?.files?.length || 0;
+        const hasData = fileCount > 0;
+        const mailSent = !!record?.lastEmailSentAt;
+        let status = 'noData';
+        if (hasData) status = mailSent ? 'sent' : 'notSent';
+
+        const ccEmails = configClient?.ccEmails || [];
+        const configEmail = configClient?.email || '';
+
+        return {
+            clientId: client._id,
+            clientName: client.name,
+            hasData,
+            mailSent,
+            sentAt: record?.lastEmailSentAt || null,
+            fileCount,
+            hasEmail: !!(
+                configEmail &&
+                configEmail !== 'No email' &&
+                String(configEmail).includes('@')
+            ),
+            configEmail,
+            ccEmails: ccEmails.map((cc) => ({
+                email: cc.email,
+                name: cc.name || '',
+            })),
+            ccCount: ccEmails.length,
+            files: (record?.files || []).map((f) => ({
+                originalName: f.originalName,
+                cloudinaryUrl: f.cloudinaryUrl,
+                filename: f.filename,
+            })),
+            status,
+        };
+    });
+
+    const sent = clientRows.filter((c) => c.status === 'sent').length;
+    const notSent = clientRows.filter((c) => c.status === 'notSent').length;
+    const noData = clientRows.filter((c) => c.status === 'noData').length;
+
+    return {
+        totals: {
+            sent,
+            notSent,
+            noData,
+            failed: 0,
+            withData: sent + notSent,
+            total: clientRows.length,
+        },
+        clients: clientRows,
+    };
+}
+
+// Mail send analytics — weekly, monthly, general status for a period
+exports.getEmailSendAnalytics = async (req, res) => {
+    try {
+        const year = parseInt(req.query.year, 10);
+        const month = req.query.month ? parseInt(req.query.month, 10) : new Date().getMonth() + 1;
+        const week = req.query.week ? parseInt(req.query.week, 10) : 1;
+
+        if (!year || Number.isNaN(year)) {
+            return res.status(400).json({ message: 'Valid year is required' });
+        }
+
+        const [clients, weeklyConfig, monthlyConfig, generalConfig] = await Promise.all([
+            MainClient.find()
+                .select('name abtMainMeter abtCheckMeter')
+                .sort({ name: 1 })
+                .lean(),
+            EmailConfig.findOne({ configType: 'weekly' }).lean(),
+            EmailConfig.findOne({ configType: 'monthly' }).lean(),
+            EmailConfig.findOne({ configType: 'general' }).lean(),
+        ]);
+
+        const [weeklyBatch, monthlyBatch, generalRecords] = await Promise.all([
+            EmailSend.findOne({
+                sendType: 'weekly',
+                'period.year': year,
+                'period.week': week,
+            })
+                .sort({ createdAt: -1 })
+                .lean(),
+            EmailSend.findOne({
+                sendType: 'monthly',
+                'period.year': year,
+                'period.month': month,
+            })
+                .sort({ createdAt: -1 })
+                .lean(),
+            GeneralEmailFile.find({ year, month })
+                .select('clientId clientName files lastEmailSentAt emailSentCount')
+                .lean(),
+        ]);
+
+        res.status(200).json({
+            period: { year, month, week },
+            weekly: buildWeeklyMonthlyAnalytics(clients, weeklyBatch, weeklyConfig),
+            monthly: buildWeeklyMonthlyAnalytics(clients, monthlyBatch, monthlyConfig),
+            general: buildGeneralAnalytics(clients, generalRecords, generalConfig),
+        });
+    } catch (error) {
+        logger.error(`Error retrieving email send analytics: ${error.message}`);
         res.status(500).json({ message: error.message });
     }
 };
