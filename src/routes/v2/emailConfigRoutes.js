@@ -58,6 +58,10 @@ router.put('/config/:configType/client/:clientId/cc/:oldEmail', emailConfigContr
 // Update client email
 router.put('/config/:configType/client/:clientId/email', emailConfigController.updateClientEmail);
 
+// Per-client template (general)
+router.put('/config/:configType/client/:clientId/template', emailConfigController.updateClientTemplate);
+router.post('/config/:configType/client/:clientId/template/reset', emailConfigController.resetClientTemplate);
+
 // Global CC email management (deprecated but kept for backward compatibility)
 router.post('/config/:configType/cc', emailConfigController.addCCEmail);
 router.delete('/config/:configType/cc/:email', emailConfigController.removeCCEmail);

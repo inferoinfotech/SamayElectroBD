@@ -9,6 +9,7 @@ const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const csv = require('csv-parser');
 const { reencodeCSVtoUTF8 } = require('../../utils/reencodeCSV');
 const { prepareCSVStream } = require('../../utils/prepareCSVStream');
@@ -18,6 +19,15 @@ const {
     buildEmailVariables,
     resolveEmailContent,
 } = require('../../utils/emailTemplate');
+const { embedInlineImagesForEmail } = require('../../utils/emailInlineImages');
+
+const getEmailTempDir = () => {
+    const tempDir = path.join(os.tmpdir(), 'samay-email-temp');
+    if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+    }
+    return tempDir;
+};
 
 // Create email transporter
 const createTransporter = () => {
@@ -551,14 +561,11 @@ exports.sendEmailToRecipient = async (req, res) => {
             
             // Create ZIP file
             const zipFileName = `${sanitizedClientName}_${batch.sendType}_${batch.period.year}${batch.period.month ? '_' + batch.period.month : ''}${batch.period.week ? '_Week' + batch.period.week : ''}.zip`;
-            zipFilePath = path.join(__dirname, '../../../uploads', zipFileName);
+            zipFilePath = path.join(getEmailTempDir(), zipFileName);
             
             try {
                 // Download files from Cloudinary to temp location
-                const tempDir = path.join(__dirname, '../../../uploads/temp');
-                if (!fs.existsSync(tempDir)) {
-                    fs.mkdirSync(tempDir, { recursive: true });
-                }
+                const tempDir = getEmailTempDir();
 
                 for (const uploadedFile of batch.uploadedFiles) {
                     if (uploadedFile.cloudinaryUrl) {
@@ -584,10 +591,7 @@ exports.sendEmailToRecipient = async (req, res) => {
                 logger.error(`Failed to create ZIP file: ${zipError.message}`);
                 // Fallback: Download and send individual files
                 try {
-                    const tempDir = path.join(__dirname, '../../../uploads/temp');
-                    if (!fs.existsSync(tempDir)) {
-                        fs.mkdirSync(tempDir, { recursive: true });
-                    }
+                    const tempDir = getEmailTempDir();
 
                     for (const uploadedFile of batch.uploadedFiles) {
                         if (uploadedFile.cloudinaryUrl) {
@@ -608,10 +612,7 @@ exports.sendEmailToRecipient = async (req, res) => {
             // For other types or no attachments, download individual files from Cloudinary
             if (batch.uploadedFiles && batch.uploadedFiles.length > 0) {
                 try {
-                    const tempDir = path.join(__dirname, '../../../uploads/temp');
-                    if (!fs.existsSync(tempDir)) {
-                        fs.mkdirSync(tempDir, { recursive: true });
-                    }
+                    const tempDir = getEmailTempDir();
 
                     for (const uploadedFile of batch.uploadedFiles) {
                         if (uploadedFile.cloudinaryUrl) {
@@ -931,10 +932,7 @@ exports.sendGeneralEmail = async (req, res) => {
         
         if (files && files.length > 0) {
             try {
-                const tempDir = path.join(__dirname, '../../../uploads/temp');
-                if (!fs.existsSync(tempDir)) {
-                    fs.mkdirSync(tempDir, { recursive: true });
-                }
+                const tempDir = getEmailTempDir();
 
                 for (const file of files) {
                     if (file.cloudinaryUrl) {
@@ -959,14 +957,20 @@ exports.sendGeneralEmail = async (req, res) => {
             allRecipients.push(...ccEmails);
         }
 
+        // Embed signature/logo images inline (localhost URLs don't work in Gmail)
+        const { html: emailHtml, attachments: allAttachments } = embedInlineImagesForEmail(
+            resolved.body,
+            attachments
+        );
+
         // Send email
         const transporter = createTransporter();
         const mailOptions = {
             from: process.env.EMAIL_USER,
             to: allRecipients.join(','),
             subject: resolved.subject,
-            html: resolved.body,
-            attachments
+            html: emailHtml,
+            attachments: allAttachments
         };
 
         await transporter.sendMail(mailOptions);
