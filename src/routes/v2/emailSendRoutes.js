@@ -88,6 +88,7 @@ router.post('/send-general', emailSendController.sendGeneralEmail);
 router.post('/general-files/save', uploadAny.array('files', 10), emailSendController.saveGeneralEmailFiles);
 router.get('/general-files', emailSendController.getGeneralEmailFiles);
 router.get('/general-files/counts', emailSendController.getAllClientsFileCounts);
+router.get('/analytics', emailSendController.getEmailSendAnalytics);
 router.get('/general-files/download', emailSendController.downloadGeneralEmailFile);
 router.post('/general-files/email-sent', emailSendController.updateGeneralEmailSent);
 router.delete('/general-files/delete', emailSendController.deleteGeneralEmailFile);

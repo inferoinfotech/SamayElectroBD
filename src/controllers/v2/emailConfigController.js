@@ -179,8 +179,8 @@ exports.addClientToConfig = async (req, res) => {
             return res.status(400).json({ message: 'Client already added to configuration' });
         }
 
-        // Add client
-        config.recipients.clients.push({
+        // Add client at top of list (most recently added first)
+        config.recipients.clients.unshift({
             clientId: client._id,
             clientName: client.name,
             consumerNo: client.abtMainMeter?.meterNumber || 'N/A',
