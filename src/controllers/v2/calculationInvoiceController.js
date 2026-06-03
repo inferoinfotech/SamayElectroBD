@@ -613,6 +613,13 @@ const BORDER_COLOR = { argb: 'FF000000' };
 const TOD_SOLAR_CONCESSION_EXCEL_LABEL =
   'TOD Solar Concession (Rs./kWh) (11:00 to 15:00 Hrs / kWh)';
 
+/** Remark column on Unit Credit Excel (e.g. set-off row 1.9). */
+function formatExcelRemark(remark) {
+  const r = String(remark ?? '').trim();
+  if (r === 'Energy Charge') return 'Energy Charge (Rate w/o ED)';
+  return remark ?? '';
+}
+
 /** Client name on Excel header: NAME (consumerNo); part client uses part consumer number. */
 function formatExcelClientDisplayName(subClient, partClientConsumerNo) {
   const name = (subClient?.name || '').trim();
@@ -828,7 +835,7 @@ function buildUnitCreditExcelCombined(clientName, solarLabelsJoined, adjustmentL
   // Use the SAME row writer rules as single-month export (font/height/italicNumeric/colStyles/numFmt)
   const writeRow = (srNo, particulars, units, rate, credit, debit, remark, options = {}) => {
     const r = ws.getRow(rowNum);
-    const cells = [srNo, particulars, formatNum(units), formatNum(rate), formatNum(credit), formatNum(debit), remark || ''];
+    const cells = [srNo, particulars, formatNum(units), formatNum(rate), formatNum(credit), formatNum(debit), formatExcelRemark(remark) || ''];
     const fill = options.fill || 'FFFFFF';
     const italic = options.italic || false;
     const fontColor = options.fontColor;
@@ -1351,7 +1358,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
 
   function writeRow(srNo, particulars, units, rate, credit, debit, remark, options = {}) {
     const r = ws.getRow(rowNum);
-    const cells = [srNo, particulars, formatNum(units), formatNum(rate), formatNum(credit), formatNum(debit), remark || ''];
+    const cells = [srNo, particulars, formatNum(units), formatNum(rate), formatNum(credit), formatNum(debit), formatExcelRemark(remark) || ''];
     const fill = options.fill || 'FFFFFF';
     const bold = options.bold !== false;
     const italic = options.italic || false;
