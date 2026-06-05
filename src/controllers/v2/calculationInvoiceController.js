@@ -10,7 +10,7 @@ const ExcelJS = require('exceljs');
 // Get losses calculation data for a sub-client, month, and year
 exports.getLossesDataForSubClient = async (req, res) => {
   try {
-    const { subClientId, month, year } = req.query;
+    const { subClientId, month, year, partClientConsumerNo } = req.query;
 
     if (!subClientId || !month || !year) {
       return res.status(400).json({
@@ -60,22 +60,41 @@ exports.getLossesDataForSubClient = async (req, res) => {
       });
     }
 
-    // Calculate generation unit and drawl unit (after losses)
-    const generationUnit = subClientData.grossInjectionMWHAfterLosses
-      ? subClientData.grossInjectionMWHAfterLosses * 1000
+    // Part client row (when selected in Unit Credit dropdown)
+    let unitsSource = subClientData;
+    const partConsumer = partClientConsumerNo
+      ? String(partClientConsumerNo).trim()
+      : '';
+    if (partConsumer && Array.isArray(subClientData.partclient) && subClientData.partclient.length > 0) {
+      const partRow = subClientData.partclient.find(
+        (pc) => String(pc.consumerNo || '').trim() === partConsumer
+      );
+      if (!partRow) {
+        return res.status(404).json({
+          message: 'Part client not found in losses calculation for this sub-client',
+        });
+      }
+      unitsSource = partRow;
+    }
+
+    const generationUnit = unitsSource.grossInjectionMWHAfterLosses
+      ? unitsSource.grossInjectionMWHAfterLosses * 1000
       : null;
-    const drawlUnit = subClientData.drawlMWHAfterLosses
-      ? subClientData.drawlMWHAfterLosses * 1000 * (-1)
+    const drawlUnit = unitsSource.drawlMWHAfterLosses
+      ? unitsSource.drawlMWHAfterLosses * 1000 * (-1)
       : null;
 
-    logger.info(`Retrieved losses data for sub-client: ${subClientId}, month: ${month}, year: ${year}`);
+    logger.info(
+      `Retrieved losses data for sub-client: ${subClientId}${partConsumer ? `, part: ${partConsumer}` : ''}, month: ${month}, year: ${year}`
+    );
     res.status(200).json({
       generationUnit,
       drawlUnit,
-      grossInjectionMWH: subClientData.grossInjectionMWH,
-      drawlMWH: subClientData.drawlMWH,
-      grossInjectionMWHAfterLosses: subClientData.grossInjectionMWHAfterLosses,
-      drawlMWHAfterLosses: subClientData.drawlMWHAfterLosses,
+      partClientConsumerNo: partConsumer || null,
+      grossInjectionMWH: unitsSource.grossInjectionMWH,
+      drawlMWH: unitsSource.drawlMWH,
+      grossInjectionMWHAfterLosses: unitsSource.grossInjectionMWHAfterLosses,
+      drawlMWHAfterLosses: unitsSource.drawlMWHAfterLosses,
     });
   } catch (error) {
     logger.error(`Error retrieving losses data: ${error.message}`);
@@ -591,6 +610,32 @@ exports.getCalculationInvoiceBySolarPeriod = async (req, res) => {
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const BORDER_COLOR = { argb: 'FF000000' };
 
+const TOD_SOLAR_CONCESSION_EXCEL_LABEL =
+  'TOD Solar Concession (Rs./kWh) (11:00 to 15:00 Hrs / kWh)';
+
+/** Remark column on Unit Credit Excel (e.g. set-off row 1.9). */
+function formatExcelRemark(remark) {
+  const r = String(remark ?? '').trim();
+  if (r === 'Energy Charge') return 'Energy Charge (Rate w/o ED)';
+  return remark ?? '';
+}
+
+/** Client name on Excel header: NAME (consumerNo); part client uses part consumer number. */
+function formatExcelClientDisplayName(subClient, partClientConsumerNo) {
+  const name = (subClient?.name || '').trim();
+  const consumer = partClientConsumerNo
+    ? String(partClientConsumerNo).trim()
+    : String(subClient?.consumerNo || '').trim();
+  if (!name && !consumer) return '';
+  if (!consumer) return name;
+  return `${name} (${consumer})`;
+}
+
+function formatPolicyRowDisplayName(name) {
+  if (name === 'TOD Solar Concession') return 'TOD Solar Concession (Rs./kWh)';
+  return name || '';
+}
+
 const thinBorder = {
   top: { style: 'thin', color: BORDER_COLOR },
   left: { style: 'thin', color: BORDER_COLOR },
@@ -790,7 +835,7 @@ function buildUnitCreditExcelCombined(clientName, solarLabelsJoined, adjustmentL
   // Use the SAME row writer rules as single-month export (font/height/italicNumeric/colStyles/numFmt)
   const writeRow = (srNo, particulars, units, rate, credit, debit, remark, options = {}) => {
     const r = ws.getRow(rowNum);
-    const cells = [srNo, particulars, formatNum(units), formatNum(rate), formatNum(credit), formatNum(debit), remark || ''];
+    const cells = [srNo, particulars, formatNum(units), formatNum(rate), formatNum(credit), formatNum(debit), formatExcelRemark(remark) || ''];
     const fill = options.fill || 'FFFFFF';
     const italic = options.italic || false;
     const fontColor = options.fontColor;
@@ -1049,7 +1094,7 @@ function buildUnitCreditExcelCombined(clientName, solarLabelsJoined, adjustmentL
       // Match single-month Excel: Section 2 Sr.No are 1..6 (no prefix)
       const sr = String(section2SrMap[key] || '');
       const labelMap = {
-        '2.1': 'TOD Solar Concession (11:00 to 15:00 Hrs / kwh )',
+        '2.1': TOD_SOLAR_CONCESSION_EXCEL_LABEL,
         '2.2': 'TCS / TDS',
         '2.3': 'Roof Top Solar',
         '2.4': 'Roof Top Solar-SELL Unit',
@@ -1183,7 +1228,7 @@ function buildUnitCreditExcelCombined(clientName, solarLabelsJoined, adjustmentL
       const rw = ws.getRow(rowNum);
       rw.getCell(1).value = idx + 1;
       applyCellStyle(rw.getCell(1), { bold: false, italic: true, horizontal: 'center', size: 11, fill: 'E2F0D9' });
-      rw.getCell(2).value = r?.name || '';
+      rw.getCell(2).value = formatPolicyRowDisplayName(r?.name);
       applyCellStyle(rw.getCell(2), { bold: false, italic: true, horizontal: 'left', size: 11, fill: 'E2F0D9' });
       rw.getCell(3).value = r?.value || '';
       applyCellStyle(rw.getCell(3), { bold: false, italic: true, horizontal: 'center', size: 11, fill: 'E2F0D9' });
@@ -1313,7 +1358,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
 
   function writeRow(srNo, particulars, units, rate, credit, debit, remark, options = {}) {
     const r = ws.getRow(rowNum);
-    const cells = [srNo, particulars, formatNum(units), formatNum(rate), formatNum(credit), formatNum(debit), remark || ''];
+    const cells = [srNo, particulars, formatNum(units), formatNum(rate), formatNum(credit), formatNum(debit), formatExcelRemark(remark) || ''];
     const fill = options.fill || 'FFFFFF';
     const bold = options.bold !== false;
     const italic = options.italic || false;
@@ -1474,7 +1519,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
   };
 
   const section2FallbackLabels = {
-    '2.1': 'TOD Solar Concession (11:00 to 15:00 Hrs / kwh )',
+    '2.1': TOD_SOLAR_CONCESSION_EXCEL_LABEL,
     '2.2': 'TCS / TDS',
     '2.3': 'Roof Top Solar',
     '2.4': 'Roof Top Solar-SELL Unit',
@@ -1831,7 +1876,7 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
       applyCellStyle(idxCell, { bold: false, italic: true, horizontal: 'center', size: 11, fill: 'E2F0D9' });
 
       const nameCell = rw.getCell(2);
-      nameCell.value = r?.name || '';
+      nameCell.value = formatPolicyRowDisplayName(r?.name);
       applyCellStyle(nameCell, { bold: false, italic: true, horizontal: 'left', size: 11, fill: 'E2F0D9' });
 
       const valCell = rw.getCell(3);
@@ -1904,6 +1949,7 @@ exports.exportCalculationToExcel = async (req, res) => {
       calculationTable,
       policy2021Style,
       appliedPolicyRows,
+      partClientConsumerNo,
     } = body || {};
 
     if (!subClientId) {
@@ -1913,8 +1959,8 @@ exports.exportCalculationToExcel = async (req, res) => {
       return res.status(400).json({ message: 'Invalid sub client ID format' });
     }
 
-    const subClient = await SubClient.findById(subClientId).select('name');
-    const clientName = subClient ? (subClient.name || '').trim() : '';
+    const subClient = await SubClient.findById(subClientId).select('name consumerNo');
+    const clientName = formatExcelClientDisplayName(subClient, partClientConsumerNo);
 
     const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
     let solarLabel = '';
