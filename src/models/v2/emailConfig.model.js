@@ -34,7 +34,12 @@ const emailConfigSchema = new mongoose.Schema({
             ccEmails: [{
                 email: { type: String, required: true },
                 name: { type: String }
-            }]
+            }],
+            // Per-client email template (used for general config)
+            template: {
+                subject: { type: String, default: '' },
+                body: { type: String, default: '' }
+            }
         }],
         
         // Global CC recipients (deprecated - keeping for backward compatibility)

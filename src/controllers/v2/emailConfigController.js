@@ -79,7 +79,8 @@ exports.getEmailConfig = async (req, res) => {
                 clientName: client.clientName,
                 consumerNo: client.consumerNo,
                 email: client.email || '', // Ensure email field is always present
-                ccEmails: client.ccEmails || []
+                ccEmails: client.ccEmails || [],
+                template: client.template || { subject: '', body: '' }
             }));
         }
 
@@ -180,12 +181,21 @@ exports.addClientToConfig = async (req, res) => {
         }
 
         // Add client at top of list (most recently added first)
-        config.recipients.clients.unshift({
+        const newClientEntry = {
             clientId: client._id,
             clientName: client.name,
             consumerNo: client.abtMainMeter?.meterNumber || 'N/A',
             email: '' // Empty email - user will add manually
-        });
+        };
+
+        if (configType === 'general') {
+            newClientEntry.template = {
+                subject: config.template?.subject || '',
+                body: config.template?.body || ''
+            };
+        }
+
+        config.recipients.clients.unshift(newClientEntry);
 
         config.updatedBy = req.userId;
         await config.save();
@@ -611,6 +621,97 @@ exports.updateClientEmail = async (req, res) => {
         });
     } catch (error) {
         logger.error(`Error updating client email: ${error.message}`);
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// Update per-client email template (general — each client has own template)
+exports.updateClientTemplate = async (req, res) => {
+    try {
+        const { configType, clientId } = req.params;
+        const { subject, body } = req.body;
+
+        if (!['weekly', 'monthly', 'general'].includes(configType)) {
+            return res.status(400).json({ message: 'Invalid config type' });
+        }
+
+        if (subject === undefined && body === undefined) {
+            return res.status(400).json({ message: 'Subject or body is required' });
+        }
+
+        const config = await EmailConfig.findOne({ configType });
+        if (!config) {
+            return res.status(404).json({ message: 'Configuration not found' });
+        }
+
+        const client = config.recipients.clients.find((c) => {
+            const cId = c.clientId?.toString() || c.clientId;
+            return cId === clientId.toString();
+        });
+
+        if (!client) {
+            return res.status(404).json({ message: 'Client not found in configuration' });
+        }
+
+        if (!client.template) {
+            client.template = { subject: '', body: '' };
+        }
+        if (subject !== undefined) client.template.subject = subject;
+        if (body !== undefined) client.template.body = body;
+
+        config.updatedBy = req.userId;
+        await config.save();
+
+        logger.info(`Client template updated for ${clientId} in ${configType} config`);
+        res.status(200).json({
+            message: 'Client template updated successfully',
+            config
+        });
+    } catch (error) {
+        logger.error(`Error updating client template: ${error.message}`);
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// Reset a single client's template to the default general template
+exports.resetClientTemplate = async (req, res) => {
+    try {
+        const { configType, clientId } = req.params;
+
+        if (configType !== 'general') {
+            return res.status(400).json({ message: 'Per-client template reset is only for general config' });
+        }
+
+        const config = await EmailConfig.findOne({ configType });
+        if (!config) {
+            return res.status(404).json({ message: 'Configuration not found' });
+        }
+
+        const client = config.recipients.clients.find((c) => {
+            const cId = c.clientId?.toString() || c.clientId;
+            return cId === clientId.toString();
+        });
+
+        if (!client) {
+            return res.status(404).json({ message: 'Client not found in configuration' });
+        }
+
+        const defaults = getDefaultTemplates().general;
+        client.template = {
+            subject: defaults.subject,
+            body: defaults.body
+        };
+
+        config.updatedBy = req.userId;
+        await config.save();
+
+        logger.info(`Client template reset to default for ${clientId}`);
+        res.status(200).json({
+            message: 'Client template reset to default',
+            config
+        });
+    } catch (error) {
+        logger.error(`Error resetting client template: ${error.message}`);
         res.status(500).json({ message: error.message });
     }
 };

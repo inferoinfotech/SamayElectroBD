@@ -5,11 +5,30 @@ const emailSendController = require('../../controllers/v2/emailSendController');
 const { verifyToken } = require('../../middleware/v1/authMiddleware');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
+
+// Use OS temp dir so nodemon does not restart when files are written during upload
+const uploadDir = path.join(os.tmpdir(), 'samay-email-attachments');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const handleMulterUpload = (uploadMiddleware) => (req, res, next) => {
+    uploadMiddleware(req, res, (err) => {
+        if (err) {
+            return res.status(400).json({
+                message: err.message || 'File upload failed',
+            });
+        }
+        next();
+    });
+};
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, 'uploads/email-attachments/');
+        cb(null, uploadDir);
     },
     filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -47,10 +66,10 @@ const uploadAny = multer({
 router.use(verifyToken);
 
 // Process uploaded CSV/CDF files and create batch
-router.post('/process-files', upload.array('files', 20), emailSendController.processEmailFiles);
+router.post('/process-files', handleMulterUpload(upload.array('files', 20)), emailSendController.processEmailFiles);
 
 // Upload files for general email attachments (accepts ALL file types)
-router.post('/upload-files', uploadAny.array('files', 10), emailSendController.uploadEmailFiles);
+router.post('/upload-files', handleMulterUpload(uploadAny.array('files', 10)), emailSendController.uploadEmailFiles);
 
 // Create new email batch (legacy)
 router.post('/batch', emailSendController.createEmailBatch);
@@ -85,7 +104,7 @@ router.delete('/client-files/delete', emailSendController.deleteClientFileForPer
 router.post('/send-general', emailSendController.sendGeneralEmail);
 
 // General Email Files Management
-router.post('/general-files/save', uploadAny.array('files', 10), emailSendController.saveGeneralEmailFiles);
+router.post('/general-files/save', handleMulterUpload(uploadAny.array('files', 10)), emailSendController.saveGeneralEmailFiles);
 router.get('/general-files', emailSendController.getGeneralEmailFiles);
 router.get('/general-files/counts', emailSendController.getAllClientsFileCounts);
 router.get('/analytics', emailSendController.getEmailSendAnalytics);

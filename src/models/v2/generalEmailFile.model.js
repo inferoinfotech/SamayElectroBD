@@ -34,6 +34,12 @@ const generalEmailFileSchema = new mongoose.Schema({
             type: String,
             required: true
         },
+        cloudinaryUrl: {
+            type: String
+        },
+        cloudinaryPublicId: {
+            type: String
+        },
         size: {
             type: Number,
             required: true
