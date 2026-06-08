@@ -1076,7 +1076,7 @@ function buildUnitCreditExcelCombined(clientName, solarLabelsJoined, adjustmentL
         mainOpts.height = 30;
       }
       if (key === '1.10') {
-        mainOpts.colStyles = { 1: { fill: 'FFC7CE', fontColor: 'AD0006', bold: true, italic: false } };
+        mainOpts.colStyles = { 2: { fill: 'FFC7CE', fontColor: 'AD0006', bold: true, italic: false } };
       }
 
       let rowRemark = row.remark;
@@ -1154,15 +1154,15 @@ function buildUnitCreditExcelCombined(clientName, solarLabelsJoined, adjustmentL
     writeSectionHeader(sectionNum, `Other - ${monthLabel}`, 'BDD7EE');
 
     const rows = Array.isArray(t.section3) ? t.section3 : [];
-    rows.forEach((r) => {
-      writeRow(r.id || '', r.particulars || '', r.unitsInKwh, r.rate, r.creditAmount, r.debitAmount, r.remark, {
+    rows.forEach((r, rowIdx) => {
+      writeRow(String(rowIdx + 1), r.particulars || '', r.unitsInKwh, r.rate, r.creditAmount, r.debitAmount, r.remark, {
         bold: false,
         italicNumeric: true,
         rateTwoDecimals: true,
         colStyles: { 2: { bold: true, italic: false } },
       });
       if (r.showElectricityDuty && r.subRows?.electricityDuty) {
-        writeRow(`${r.id}.1`, 'Electricity Duty', r.subRows.electricityDuty.unitsInKwh, r.subRows.electricityDuty.rate, r.subRows.electricityDuty.creditAmount, r.subRows.electricityDuty.debitAmount, r.subRows.electricityDuty.remark, {});
+        writeRow(`${rowIdx + 1}.1`, 'Electricity Duty', r.subRows.electricityDuty.unitsInKwh, r.subRows.electricityDuty.rate, r.subRows.electricityDuty.creditAmount, r.subRows.electricityDuty.debitAmount, r.subRows.electricityDuty.remark, {});
       }
     });
   });
