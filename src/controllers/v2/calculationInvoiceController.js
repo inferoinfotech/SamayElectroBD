@@ -938,9 +938,13 @@ function buildUnitCreditExcelCombined(clientName, solarLabelsJoined, adjustmentL
     const sectionNum = idx + 1;
     writeSectionHeader(sectionNum, `As Per RE Solar Policy-2023 - ${monthLabel}`, 'BDD7EE');
 
+    const wheelingLossRow = appliedPolicyRows && appliedPolicyRows.find(r => r.name === 'Wheeling Loss (%)');
+    const wheelingLossValue = wheelingLossRow && (wheelingLossRow.rate || wheelingLossRow.value) ? (wheelingLossRow.rate || wheelingLossRow.value) : '7.25';
+    console.log('🛠️ wheelingLossValue (loop):', wheelingLossValue);
+
     const section1FallbackLabels = {
       '1.1': 'Gross Solar Generation as per SLDC- ( Policy-2023)',
-      '1.2': 'Net Solar Generation after Wheeling loss = A * (1-7.25%)',
+      '1.2': `Net Solar Generation after Wheeling loss = A * ${wheelingLossValue} %`,
       '1.3': 'Generation Set-Off with Consumption 15-min basis',
       '1.4': 'Surplus Energy after Set-Off ( Banked Energy )',
       '1.5': `Total Consumption from DISCOM for the Month of ${monthLabel}`,
@@ -977,12 +981,31 @@ function buildUnitCreditExcelCombined(clientName, solarLabelsJoined, adjustmentL
 
       if (key === '1.2') {
         const baseTxt = typeof mainLabel === 'string' ? mainLabel : section1FallbackLabels['1.2'];
-        if (baseTxt.includes('A * (1-7.25%)')) {
-          const parts = baseTxt.split('A * (1-7.25%)');
+        const targetPattern = `A * ${wheelingLossValue} %`;
+        if (baseTxt.includes(targetPattern)) {
+          const parts = baseTxt.split(targetPattern);
           mainLabel = {
             richText: [
               { text: parts[0], font: { bold: true, size: 11, name: 'Times New Roman' } },
-              { text: 'A * (1-7.25%)', font: { bold: false, italic: true, size: 11, name: 'Times New Roman' } },
+              { text: targetPattern, font: { bold: false, italic: true, size: 11, name: 'Times New Roman' } },
+              { text: parts[1] || '', font: { bold: true, size: 11, name: 'Times New Roman' } }
+            ]
+          };
+        } else if (baseTxt.includes(`A * ${wheelingLossValue}%`)) {
+          const parts = baseTxt.split(`A * ${wheelingLossValue}%`);
+          mainLabel = {
+            richText: [
+              { text: parts[0], font: { bold: true, size: 11, name: 'Times New Roman' } },
+              { text: targetPattern, font: { bold: false, italic: true, size: 11, name: 'Times New Roman' } },
+              { text: parts[1] || '', font: { bold: true, size: 11, name: 'Times New Roman' } }
+            ]
+          };
+        } else if (baseTxt.includes('A * 7.25%')) {
+          const parts = baseTxt.split('A * 7.25%');
+          mainLabel = {
+            richText: [
+              { text: parts[0], font: { bold: true, size: 11, name: 'Times New Roman' } },
+              { text: targetPattern, font: { bold: false, italic: true, size: 11, name: 'Times New Roman' } },
               { text: parts[1] || '', font: { bold: true, size: 11, name: 'Times New Roman' } }
             ]
           };
@@ -1503,9 +1526,13 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
     '2.6': 6,
   };
 
+  const wheelingLossRow = appliedPolicyRows && appliedPolicyRows.find(r => r.name === 'Wheeling Loss (%)');
+  const wheelingLossValue = wheelingLossRow && (wheelingLossRow.rate || wheelingLossRow.value) ? (wheelingLossRow.rate || wheelingLossRow.value) : '7.25';
+  console.log('🛠️ wheelingLossValue (single):', wheelingLossValue);
+
   const section1FallbackLabels = {
     '1.1': 'Gross Solar Generation as per SLDC- ( Policy-2023)',
-    '1.2': 'Net Solar Generation after Wheeling loss = A * (1-7.25%)',
+    '1.2': `Net Solar Generation after Wheeling loss = A * ${wheelingLossValue} %`,
     '1.3': 'Generation Set-Off with Consumption 15-min basis',
     '1.4': 'Surplus Energy after Set-Off ( Banked Energy )',
     '1.5': `Total Consumption from DISCOM for the Month of ${solarLabel}`,
@@ -1555,12 +1582,31 @@ function buildUnitCreditExcel(clientName, solarLabel, adjustmentLabel, calculati
 
       if (key === '1.2') {
         const baseTxt = typeof mainLabel === 'string' ? mainLabel : section1FallbackLabels['1.2'];
-        if (baseTxt.includes('A * (1-7.25%)')) {
-          const parts = baseTxt.split('A * (1-7.25%)');
+        const targetPattern = `A * ${wheelingLossValue} %`;
+        if (baseTxt.includes(targetPattern)) {
+          const parts = baseTxt.split(targetPattern);
           mainLabel = {
             richText: [
               { text: parts[0], font: { bold: true, size: 11, name: 'Times New Roman' } },
-              { text: 'A * (1-7.25%)', font: { bold: false, italic: true, size: 11, name: 'Times New Roman' } },
+              { text: targetPattern, font: { bold: false, italic: true, size: 11, name: 'Times New Roman' } },
+              { text: parts[1] || '', font: { bold: true, size: 11, name: 'Times New Roman' } }
+            ]
+          };
+        } else if (baseTxt.includes(`A * ${wheelingLossValue}%`)) {
+          const parts = baseTxt.split(`A * ${wheelingLossValue}%`);
+          mainLabel = {
+            richText: [
+              { text: parts[0], font: { bold: true, size: 11, name: 'Times New Roman' } },
+              { text: targetPattern, font: { bold: false, italic: true, size: 11, name: 'Times New Roman' } },
+              { text: parts[1] || '', font: { bold: true, size: 11, name: 'Times New Roman' } }
+            ]
+          };
+        } else if (baseTxt.includes('A * 7.25%')) {
+          const parts = baseTxt.split('A * 7.25%');
+          mainLabel = {
+            richText: [
+              { text: parts[0], font: { bold: true, size: 11, name: 'Times New Roman' } },
+              { text: targetPattern, font: { bold: false, italic: true, size: 11, name: 'Times New Roman' } },
               { text: parts[1] || '', font: { bold: true, size: 11, name: 'Times New Roman' } }
             ]
           };
